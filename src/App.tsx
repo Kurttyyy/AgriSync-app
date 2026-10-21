@@ -22,7 +22,8 @@ import type { AuthUser } from './domain/types'
 function ProtectedApp() {
   const authenticated = useAppState((state) => state.auth.authenticated)
   const user = useAppState((state) => state.auth.user)
-  if (!authenticated || user?.role !== 'farmer' || !user.farmerId) return <Navigate to="/login" replace />
+  const userFarmerIds = user ? ownedFarmerIds(user) : []
+  if (!authenticated || user?.role !== 'farmer' || userFarmerIds.length === 0) return <Navigate to="/login" replace />
 
   return (
     <AppShell>

@@ -493,11 +493,12 @@ export function linkFarmerProfile(farmerId: string): void {
     throw new Error('Could not link the farm profile to your account.')
   }
   const farmerIds = [...new Set([...(currentUser.farmerIds ?? []), ...(currentUser.farmerId ? [currentUser.farmerId] : []), farmerId])]
-  const updatedUser: AuthUser = { ...currentUser, farmerIds }
+  const firstFarmerId = farmerIds[0] ?? farmerId
+  const updatedUser: AuthUser = { ...currentUser, farmerId: firstFarmerId, farmerIds }
   setState({
     auth: { user: updatedUser, authenticated: true },
   })
-  void requireSupabase().auth.updateUser({ data: { farmerIds } })
+  void requireSupabase().auth.updateUser({ data: { farmerId: firstFarmerId, farmerIds } })
     .then(({ error }) => { if (error) throw error })
     .catch(reportDatabaseError)
 }
