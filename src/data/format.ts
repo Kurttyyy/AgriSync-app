@@ -15,6 +15,10 @@ export function fmtDate(iso?: string | null): string {
   return new Date(iso).toLocaleDateString('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+export function fmtCashAdvanceDueDate(dueDate: string, dueAfterHarvest?: boolean): string {
+  return dueAfterHarvest ? 'After harvest' : fmtDate(dueDate)
+}
+
 export function fmtShortDate(iso?: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('en-PH', { day: 'numeric', month: 'short' })
@@ -45,5 +49,9 @@ export function fmtTimeOfDay(iso?: string | null): string {
 }
 
 export function isOverdue(iso?: string | null): boolean {
-  return !!iso && new Date(iso).getTime() < Date.now()
+  if (!iso) return false
+  const dueDate = new Date(iso)
+  if (!Number.isFinite(dueDate.getTime())) return false
+  dueDate.setHours(24, 0, 0, 0)
+  return dueDate.getTime() <= Date.now()
 }

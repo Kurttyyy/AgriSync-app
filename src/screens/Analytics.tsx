@@ -1,4 +1,5 @@
 import { useAppState } from '../data/store'
+import { dbForUser } from '../data/selectors'
 import {
   healthCounts,
   cashAdvanceMix,
@@ -8,12 +9,12 @@ import {
   visitsPerWeek,
 } from '../data/selectors'
 import { COLORS, CropBar, DistributionBar, Donut, TrendLine, VisitBars } from '../components/charts'
-import { Chip } from '../components/kit'
 import { IconChart } from '../components/icons'
 
 export default function Analytics() {
-  const db = useAppState((s) => s.db)
-  const outbox = useAppState((s) => s.outbox)
+  const allDb = useAppState((s) => s.db)
+  const user = useAppState((s) => s.auth.user)
+  const db = dbForUser(allDb, user)
   const lastSync = useAppState((s) => s.lastSyncAt)
 
   const health = healthCounts(db)
@@ -27,23 +28,15 @@ export default function Analytics() {
     <>
       <div className="page-header">
         <div>
-          <div className="crumb">Decision intelligence</div>
+          <div className="crumb">Your farm records</div>
           <h1 className="mt-2">Analytics</h1>
+          <p className="text-sm mt-2">A simple overview of your visits, advances, crops, and farm health.</p>
         </div>
-        <Chip tone="tone-green" dot>Snapshot from last sync</Chip>
       </div>
-
-      {outbox.filter((o) => o.status === 'pending' || o.status === 'failed').length > 0 && (
-        <div className="card" style={{ borderColor: 'rgba(217,154,43,.4)', background: 'var(--gold-soft)' }}>
-          <div style={{ fontSize: 13, color: 'var(--gold-ink)', fontWeight: 600 }}>
-            Analytics reflect the on-device snapshot. {outbox.filter((o) => o.status === 'pending' || o.status === 'failed').length} unsynced record(s) will appear after the next sync.
-          </div>
-        </div>
-      )}
 
       <div className="card mt-4">
         <div className="card-row">
-          <span className="card-title">Field visits · last 8 weeks</span>
+          <span className="card-title">Farm visits · last 8 weeks</span>
         </div>
         <div className="chart-box"><VisitBars data={weeks} /></div>
       </div>
@@ -57,7 +50,7 @@ export default function Analytics() {
         </div>
         <div className="card">
           <div className="card-row">
-            <span className="card-title">Capital mix by facility</span>
+            <span className="card-title">Cash advances by type</span>
           </div>
           <div className="chart-box"><Donut data={mix} colors={[COLORS.brand, COLORS.gold, COLORS.blue, COLORS.green]} /></div>
         </div>
@@ -103,13 +96,12 @@ export default function Analytics() {
       </div>
 
       <div className="seg-title mt-5">
-        <IconChart width={14} height={14} /> How this works
+        <IconChart width={14} height={14} /> About these summaries
       </div>
       <div className="card">
         <p className="text-sm text-mute">
-          All figures are computed locally from the on-device data snapshot
-          ({lastSync ? `last synced ${lastSync.slice(0, 10)}` : 'not synced yet'}). Because aggregation runs on-device,
-          this dashboard stays fully usable without a connection — field intelligence, not just records.
+          These figures are calculated from records saved on this device
+          ({lastSync ? `last processed by the simulator ${lastSync.slice(0, 10)}` : 'no sync-simulator run yet'}). Summaries remain available offline.
         </p>
       </div>
     </>

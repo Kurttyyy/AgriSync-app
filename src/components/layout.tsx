@@ -2,6 +2,7 @@ import { useEffect, type ReactNode, type SVGProps, type ReactElement } from 'rea
 import { NavLink, Link } from 'react-router-dom'
 import { getState, logout, useAppState } from '../data/store'
 import { runSync } from '../data/sync'
+import { dbForUser, outboxForUser } from '../data/selectors'
 import { toast, Avatar } from './kit'
 import {
   IconChart,
@@ -22,11 +23,11 @@ export const NAV_ITEMS: {
   end?: boolean
 }[] = [
   { to: '/', label: 'Home', icon: IconHome, end: true },
-  { to: '/farmers', label: 'Farmers', icon: IconFarmers },
+  { to: '/farmers', label: 'Farm Profiles', icon: IconFarmers },
   { to: '/cash-advances', label: 'Cash Advances', icon: IconCashAdvance },
   { to: '/expenses', label: 'Expenses', icon: IconExpense },
   { to: '/analytics', label: 'Analytics', icon: IconChart },
-  { to: '/sync', label: 'Sync', icon: IconSync },
+  { to: '/sync', label: 'Sync Status', icon: IconSync },
 ]
 
 function useReconnectAutoSync() {
@@ -35,8 +36,10 @@ function useReconnectAutoSync() {
       const prev = window.__agriledgerWasOnline
       window.__agriledgerWasOnline = navigator.onLine
       if (navigator.onLine && prev === false && getState().settings.autoSync) {
-        void runSync('online-event').then((n) => {
-          if (n > 0) toast(`${n} records synced after reconnect`)
+        const { db, outbox, auth } = getState()
+        const ownedOutbox = outboxForUser(outbox, dbForUser(db, auth.user))
+        void runSync('online-event', new Set(ownedOutbox.map((item) => item.id))).then((n) => {
+          if (n > 0) toast(`${n} records processed by the sync simulator`)
         })
       }
     }
@@ -54,15 +57,36 @@ declare global {
 
 export function AppShell({ children }: { children: ReactNode }) {
   useReconnectAutoSync()
+  useEffect(() => {
+    const onStorageError = () => toast('Could not save data on this device. Check available storage.', 'alert')
+    const onDatabaseError = (event: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail as { message?: unknown } : null
+      const message = typeof detail?.message === 'string' ? detail.message : 'Unable to save data to the database.'
+      toast(message, 'alert')
+    }
+    window.addEventListener('agriledger:storage-error', onStorageError)
+    window.addEventListener('agriledger:database-error', onDatabaseError)
+    return () => {
+      window.removeEventListener('agriledger:storage-error', onStorageError)
+      window.removeEventListener('agriledger:database-error', onDatabaseError)
+    }
+  }, [])
   const online = useAppState((s) => s.online)
+  const databaseError = useAppState((s) => s.databaseError)
+  useEffect(() => {
+    if (databaseError) toast(databaseError, 'alert')
+  }, [databaseError])
   const syncing = useAppState((s) => s.syncing)
-  const pending = useAppState(
-    (s) => s.outbox.filter((o) => o.status === 'pending' || o.status === 'failed').length,
-  )
-  const agent = useAppState((s) => s.settings.agentName)
   const user = useAppState((s) => s.auth.user)
-  const displayName = user?.name ?? agent
-  const initials = user?.initials ?? initialsOf(agent)
+  const allDb = useAppState((s) => s.db)
+  const allOutbox = useAppState((s) => s.outbox)
+  const userDb = dbForUser(allDb, user)
+  const outbox = outboxForUser(allOutbox, userDb)
+  const allPending = outbox.filter((item) => item.status === 'pending' || item.status === 'failed').length
+  const pending = allPending
+  const navItems = NAV_ITEMS
+  const displayName = user?.name ?? 'Farmer'
+  const initials = user?.initials ?? initialsOf(displayName)
 
   const fatal = pending >= 2 && syncing
 
@@ -85,7 +109,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
 
           <nav className="top-nav" aria-label="Main">
-            {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+            {navItems.map(({ to, label, icon: Icon, end }) => (
               <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
                 <Icon width={17} height={17} />
                 {label}
@@ -95,10 +119,15 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="topbar-actions">
             <Chip online={online} />
-            <SyncButton pending={pending} syncing={syncing} />
+            <SyncButton
+              pending={pending}
+              syncing={syncing}
+              online={online}
+              itemIds={outbox.map((item) => item.id)}
+            />
             <div className="topbar-user" title={displayName}>
               <span className="topbar-user-name">{displayName}</span>
-              <span className="topbar-user-role">{user?.roleLabel ?? 'Farmer Administrator'}</span>
+              <span className="topbar-user-role">Farmer</span>
             </div>
             <span style={{ display: 'grid' }}>
               <Avatar initials={initials} size={38} />
@@ -111,12 +140,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      {!online && <OfflineBanner pending={pending} />}
+      {!online && <OfflineBanner pending={pending} itemIds={outbox.map((item) => item.id)} />}
 
       <main className="main">{children}</main>
 
       <nav className="bottomnav" aria-label="Primary">
-        {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+        {navItems.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
@@ -126,7 +155,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Icon width={22} height={22} />
             {label}
-            {to === '/sync' && pending > 0 && <span className="bn-dot">{pending}</span>}
           </NavLink>
         ))}
         <button className="bn-item bn-signout" onClick={logout} aria-label="Sign out">
@@ -138,11 +166,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       {pending > 0 && !fatal && (
         <button
           className="fab"
-          aria-label="Sync now"
+          aria-label="Process queued records"
           disabled={syncing}
           onClick={() => {
             if (syncing) return
-            void runSync('manual').then((n) => toast(n > 0 ? `${n} records synced` : 'Nothing to sync'))
+            if (!online) {
+              toast('Connect to the network to process queued records', 'alert')
+              return
+            }
+            void runSync('manual', new Set(outbox.map((item) => item.id))).then((n) => toast(n > 0 ? `${n} records processed` : 'Nothing to process'))
           }}
         >
           {syncing ? (
@@ -173,24 +205,30 @@ export function Chip({ online }: { online: boolean }) {
   )
 }
 
-function SyncButton({ pending, syncing }: { pending: number; syncing: boolean }) {
+function SyncButton({ pending, syncing, online, itemIds }: {
+  pending: number
+  syncing: boolean
+  online: boolean
+  itemIds: string[]
+}) {
+  const disabled = syncing || !online
   return (
     <button
-      className={`btn btn-sm ${syncing ? 'btn-soft' : pending > 0 ? 'btn-primary' : 'btn-ghost'}`}
+      className={`btn btn-sm ${syncing ? 'btn-soft' : pending > 0 && online ? 'btn-primary' : 'btn-ghost'}`}
       onClick={() => {
-        if (syncing) return
-        void runSync('manual').then((n) => toast(n > 0 ? `${n} records synced` : 'All up to date'))
+        if (disabled) return
+        void runSync('manual', new Set(itemIds)).then((n) => toast(n > 0 ? `${n} records processed` : 'All up to date'))
       }}
-      disabled={syncing}
-      title="Sync outbox"
+      disabled={disabled}
+      title={online ? 'Process queued records' : 'Connect to process queued records'}
     >
       {syncing ? <IconSync className="spin" width={16} height={16} /> : <IconSync width={16} height={16} />}
-      <span>{syncing ? 'Syncing…' : pending > 0 ? `Sync ${pending}` : 'Synced'}</span>
+      <span>{syncing ? 'Processing…' : !online ? 'Offline' : pending > 0 ? `Process ${pending}` : 'Processed'}</span>
     </button>
   )
 }
 
-function OfflineBanner({ pending }: { pending: number }) {
+function OfflineBanner({ pending, itemIds }: { pending: number; itemIds: string[] }) {
   return (
     <div className="offline-banner">
       <IconCloudOff width={18} height={18} />
@@ -201,8 +239,8 @@ function OfflineBanner({ pending }: { pending: number }) {
         <button
           className="banner-btn"
           onClick={() => {
-            if (navigator.onLine) void runSync('manual')
-            else toast('Connect to the network to sync', 'alert')
+            if (navigator.onLine) void runSync('manual', new Set(itemIds))
+            else toast('Connect to the network to process queued records', 'alert')
           }}
         >
           <IconCloudOk width={15} height={15} style={{ verticalAlign: '-2px' }} /> Sync

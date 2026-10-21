@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate, useParams, Link } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAppState } from '../data/store'
 import { createFarmer, updateFarmer } from '../data/repository'
+import { linkFarmerProfile } from '../data/store'
 import { toast, Button, Field } from '../components/kit'
 import { IconChevronLeft } from '../components/icons'
 
@@ -17,156 +18,121 @@ function formatLocal(digits: string): string {
 
 export default function FarmerForm() {
   const { id } = useParams()
-  const nav = useNavigate()
-  const existing = useAppState((s) => (id ? s.db.farmers.find((f) => f.id === id) : undefined))
-  const isEdit = !!id
-
+  const navigate = useNavigate()
+  const farmer = useAppState((state) => state.db.farmers.find((item) => item.id === id))
+  const isNew = !id
   const [form, setForm] = useState(() => ({
-    name: existing?.name ?? '',
-    phone: existing?.phone ?? PH_PREFIX,
-    email: existing?.email ?? '',
-    village: existing?.village ?? '',
-    district: existing?.district ?? '',
-    farmSizeHa: existing?.farmSizeHa?.toString() ?? '2.0',
-    primaryCrop: existing?.primaryCrop ?? 'Palay (rice)',
-    creditRisk: existing?.creditRisk ?? 'low',
-    joinedDate: existing?.joinedDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-    notes: existing?.notes ?? '',
+    name: farmer?.name ?? '',
+    phone: farmer?.phone ?? PH_PREFIX,
+    email: farmer?.email ?? '',
+    village: farmer?.village ?? '',
+    district: farmer?.district ?? '',
+    farmSizeHa: farmer?.farmSizeHa?.toString() ?? '',
+    primaryCrop: farmer?.primaryCrop ?? 'Palay (rice)',
   }))
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+    setForm((current) => ({ ...current, [key]: value }))
 
-  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
-    setForm((f) => ({ ...f, [k]: v }))
-
-  function setPhone(v: string) {
-    const digits = v.replace(/\D/g, '').slice(0, 10)
+  function setPhone(value: string) {
+    const digits = value.replace(/\D/g, '').slice(0, 10)
     set('phone', PH_PREFIX + (digits ? formatLocal(digits) : ''))
   }
 
-  function submit(e: FormEvent) {
-    e.preventDefault()
-    const size = parseFloat(form.farmSizeHa) || 0
-    if (!form.name.trim()) {
-      toast('Farmer name is required', 'alert')
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!isNew && !farmer) {
+      toast('Your farm profile could not be found.', 'alert')
       return
     }
-    if (isEdit && existing) {
-      updateFarmer(existing.id, {
-        name: form.name.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim() || undefined,
-        village: form.village.trim(),
-        district: form.district.trim(),
-        farmSizeHa: size,
-        primaryCrop: form.primaryCrop,
-        creditRisk: form.creditRisk,
-      })
-      toast('Farmer profile updated — queued for sync')
-    } else {
-      createFarmer({
-        name: form.name.trim(),
-        phone: form.phone.trim(),
-        email: form.email.trim() || undefined,
-        village: form.village.trim(),
-        district: form.district.trim(),
-        farmSizeHa: size,
-        primaryCrop: form.primaryCrop,
-        creditRisk: form.creditRisk as 'low' | 'medium' | 'high',
-        joinedDate: new Date(form.joinedDate).toISOString(),
-        notes: form.notes.trim() || undefined,
-      })
-      toast('Farmer registered — saved on device')
+    const size = Number(form.farmSizeHa)
+    if (!form.name.trim() || !Number.isFinite(size) || size <= 0) {
+      toast('Enter your name and a valid farm size.', 'alert')
+      return
     }
-    nav(id ? `/farmers/${id}` : '/farmers')
+    const data = {
+      name: form.name.trim(),
+      phone: form.phone.trim(),
+      email: form.email.trim() || undefined,
+      village: form.village.trim(),
+      district: form.district.trim(),
+      farmSizeHa: size,
+      primaryCrop: form.primaryCrop,
+    }
+    if (isNew) {
+      const created = createFarmer({
+        ...data,
+        creditRisk: 'medium',
+        joinedDate: new Date().toISOString(),
+      })
+      linkFarmerProfile(created.id)
+      toast('Farmer profile added to your account.')
+      navigate(`/farmers/${created.id}`)
+    } else if (farmer) {
+      updateFarmer(farmer.id, data)
+      toast('Your farm profile was updated.')
+      navigate(`/farmers/${farmer.id}`)
+    }
   }
+
+  if (!isNew && !farmer) {
+    return <section className="card"><p>Your farm profile could not be found.</p><Link to="/" className="btn btn-ghost mt-4">Back to home</Link></section>
+  }
+
+  const profile = farmer
+  const returnTo = profile ? `/farmers/${profile.id}` : '/farmers'
 
   return (
     <>
       <div className="page-header">
         <div className="flex gap-md">
-          <Link to={id ? `/farmers/${id}` : '/farmers'} className="icon-btn" aria-label="Back">
+          <Link to={returnTo} className="icon-btn" aria-label={isNew ? 'Back to farm profiles' : 'Back to profile'}>
             <IconChevronLeft />
           </Link>
           <div>
-            <div className="crumb">{isEdit ? 'Edit profile' : 'New registration'}</div>
-            <h1 className="mt-2" style={{ fontSize: 21 }}>{isEdit ? 'Update farmer' : 'Register farmer'}</h1>
+            <div className="crumb">Farm profiles</div>
+            <h1 className="mt-2" style={{ fontSize: 21 }}>{isNew ? 'Add farmer profile' : `Update ${profile?.name ?? 'profile'}`}</h1>
           </div>
         </div>
       </div>
 
       <form onSubmit={submit}>
         <section className="card">
-          <h3 className="mb-4">Farmer details</h3>
+          <h3 className="mb-4">{isNew ? 'Farmer details' : 'Profile details'}</h3>
           <div className="form-grid">
-            <Field label="Name" className="grow">
-              <input className="input" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Juan Dela Cruz" />
+            <Field label="Name">
+              <input className="input" value={form.name} onChange={(event) => set('name', event.target.value)} required />
             </Field>
             <Field label="Phone number">
               <div className="phone-wrap">
                 <span className="phone-prefix">+63</span>
-                <input
-                  className="input"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  placeholder="9XX XXX XXXX"
-                  value={localNumber(form.phone)}
-                  onChange={(e) => setPhone(e.target.value)}
-                />
+                <input className="input" inputMode="tel" autoComplete="tel" placeholder="9XX XXX XXXX" value={localNumber(form.phone)} onChange={(event) => setPhone(event.target.value)} />
               </div>
             </Field>
-            <Field label="Email address" hint="Used for Gmail cash advance updates.">
-              <input className="input" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="farmer@gmail.com" />
+            <Field label="Email address">
+              <input className="input" type="email" value={form.email} onChange={(event) => set('email', event.target.value)} />
             </Field>
             <Field label="Village">
-              <input className="input" value={form.village} onChange={(e) => set('village', e.target.value)} placeholder="Village / locality" />
+              <input className="input" value={form.village} onChange={(event) => set('village', event.target.value)} />
             </Field>
             <Field label="City / municipality">
-              <input className="input" value={form.district} onChange={(e) => set('district', e.target.value)} placeholder="City or municipality" />
+              <input className="input" value={form.district} onChange={(event) => set('district', event.target.value)} />
             </Field>
-            <Field label="Farm size (ha)" hint="Used for cash advance sizing." className="grow">
-              <input className="input" type="number" min="0.1" step="0.1" value={form.farmSizeHa} onChange={(e) => set('farmSizeHa', e.target.value)} />
+            <Field label="Farm size (hectares)">
+              <input className="input" type="number" min="0.1" step="0.1" value={form.farmSizeHa} onChange={(event) => set('farmSizeHa', event.target.value)} required />
             </Field>
-            <Field label="Primary crop">
-              <select className="select" value={form.primaryCrop} onChange={(e) => set('primaryCrop', e.target.value)}>
-                {['Palay (rice)', 'Corn', 'Onion', 'Garlic', 'Vegetables', 'Mango', 'Sweet potato'].map((c) => (
-                  <option key={c}>{c}</option>
+            <Field label="Main crop">
+              <select className="select" value={form.primaryCrop} onChange={(event) => set('primaryCrop', event.target.value)}>
+                {['Palay (rice)', 'Corn', 'Onion', 'Garlic', 'Vegetables', 'Mango', 'Sweet potato'].map((crop) => (
+                  <option key={crop}>{crop}</option>
                 ))}
               </select>
-            </Field>
-            <Field label="Credit risk" hint="Financial-inclusion profile used for lending eligibility.">
-              <div className="pill-row">
-                {(['low', 'medium', 'high'] as const).map((r) => (
-                  <button
-                    type="button"
-                    key={r}
-                    className={`pill${form.creditRisk === r ? ' on' : ''}`}
-                    onClick={() => set('creditRisk', r)}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </Field>
-            <Field label="Joined date">
-              <input className="input" type="date" value={form.joinedDate} onChange={(e) => set('joinedDate', e.target.value)} />
             </Field>
           </div>
         </section>
 
-        <section className="card">
-          <h3 className="mb-4">Notes (optional)</h3>
-          <textarea
-            className="textarea"
-            value={form.notes}
-            onChange={(e) => set('notes', e.target.value)}
-            placeholder="Land tenure, water access, off-farm income, etc."
-          />
-        </section>
-
         <div className="flex gap-md mt-4">
-          <Button type="submit" block>{isEdit ? 'Save changes' : 'Register farmer'}</Button>
-          <Link to={id ? `/farmers/${id}` : '/farmers'} className="btn btn-ghost">
-            Cancel
-          </Link>
+          <Button type="submit" block>{isNew ? 'Save farmer profile' : 'Save changes'}</Button>
+          <Link to={returnTo} className="btn btn-ghost">Cancel</Link>
         </div>
       </form>
     </>

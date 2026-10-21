@@ -1,6 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { useAppState } from '../data/store'
 import { createExpense } from '../data/repository'
+import { dbForUser } from '../data/selectors'
 import { fmtDate, fmtMoney } from '../data/format'
 import { Button, Chip, Field, Seg, toast } from '../components/kit'
 import { IconDownload, IconExpense, IconPlus, IconSearch, IconWallet } from '../components/icons'
@@ -10,17 +12,30 @@ export const CATEGORIES: { id: ExpenseCategory; label: string; tone: string; col
   { id: 'seeds', label: 'Seeds', tone: 'tone-green', color: '#2f7d4f' },
   { id: 'fertilizer', label: 'Fertilizer', tone: 'tone-gold', color: '#d99a2b' },
   { id: 'fuel', label: 'Fuel', tone: 'tone-blue', color: '#2f6b8f' },
-  { id: 'other', label: 'Other', tone: 'tone-red', color: '#bf4b33' },
 ]
 
-export const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.label]))
+const CATEGORY_TONE: Record<string, { label: string; tone: string; color: string }> = Object.fromEntries(
+  CATEGORIES.map(({ id, label, tone, color }) => [id, { label, tone, color }]),
+)
 
-const PRESET_AMOUNTS = [1500, 2500, 3000, 4200, 5000, 5500]
+export function categoryLabel(category: ExpenseCategory): string {
+  return CATEGORY_TONE[category]?.label ?? category
+}
+
+export function categoryTone(category: ExpenseCategory): string {
+  return CATEGORY_TONE[category]?.tone ?? 'tone-grey'
+}
+
+function categoryColor(category: ExpenseCategory): string {
+  return CATEGORY_TONE[category]?.color ?? '#7b8794'
+}
 
 export default function Expenses() {
-  const db = useAppState((s) => s.db)
+  const allDb = useAppState((s) => s.db)
+  const user = useAppState((s) => s.auth.user)
+  const db = dbForUser(allDb, user)
   const online = useAppState((s) => s.online)
-  const [showForm, setShowForm] = useState(true)
+  const [showForm, setShowForm] = useState(db.expenses.length === 0)
 
   const expenses = useMemo(
     () => [...db.expenses].sort((a, b) => b.date.localeCompare(a.date)),
@@ -31,10 +46,8 @@ export default function Expenses() {
   const byCategory = useMemo(() => {
     const sums = new Map<ExpenseCategory, number>()
     for (const e of db.expenses) sums.set(e.category, (sums.get(e.category) ?? 0) + e.amount)
-    const ordering: ExpenseCategory[] = ['seeds', 'fertilizer', 'fuel', 'other']
-    return ordering
-      .map((c) => ({ category: c, label: CATEGORY_LABEL[c], amount: sums.get(c) ?? 0 }))
-      .filter((r) => r.amount > 0)
+    return [...sums.entries()]
+      .map(([category, amount]) => ({ category, label: categoryLabel(category), amount }))
       .sort((a, b) => b.amount - a.amount)
   }, [db.expenses])
 
@@ -53,20 +66,33 @@ export default function Expenses() {
       {showForm && (
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="card-row">
-            <span className="card-title">Add farm expense</span>
+            <div>
+              <span className="card-title">Add an expense</span>
+              <p className="text-sm mt-2">Enter who, when, and what the expense was for.</p>
+            </div>
           </div>
-          <ExpenseForm online={online} onSaved={() => setShowForm(false)} />
+          {db.farmers.length === 0 ? (
+            <div className="empty">
+              <div style={{ fontWeight: 650, color: 'var(--ink)', fontSize: 14 }}>Add a farmer first</div>
+              <div className="text-sm mt-2">Expenses need to be linked to a farmer.</div>
+              <Link to="/farmers/new" className="btn btn-primary btn-sm mt-4">
+                <IconPlus width={15} height={15} /> Add farmer
+              </Link>
+            </div>
+          ) : (
+            <ExpenseForm db={db} online={online} onSaved={() => setShowForm(false)} />
+          )}
         </div>
       )}
 
-      {expenses.length > 0 && <RecordsTable expenses={expenses} />}
+      {expenses.length > 0 && <RecordsTable expenses={expenses} farmers={db.farmers} />}
 
       <div className="seg-title mt-5">
-        <IconExpense width={14} height={14} /> Expense report
+        <IconExpense width={14} height={14} /> Expense summary
       </div>
       <div className="card">
         <div className="stat-grid">
-          <StatBox label="Total farmers" value={String(db.farmers.length)} note="Registered profiles" />
+          <StatBox label="My farm" value={String(db.farmers.length)} note={db.farmers[0]?.name ?? 'Your profile'} />
           <StatBox label="Total expenses" value={fmtMoney(total)} note={`${expenses.length} records`} />
           <StatBox label="Avg per record" value={fmtMoney(Math.round(total / Math.max(1, expenses.length)))} note="Approximate" />
           <StatBox label="Top category" value={byCategory[0]?.label ?? '—'} note={byCategory[0] ? fmtMoney(byCategory[0].amount) : 'No expenses yet'} />
@@ -83,12 +109,12 @@ export default function Expenses() {
               <div key={category} className="expense-bar">
                 <div className="flex between" style={{ fontSize: 13, marginBottom: 6 }}>
                   <span className="expense-bar-label">
-                    <ChipDot color={bareTone(category).color} /> {label}
+                    <ChipDot color={categoryColor(category)} /> {label}
                   </span>
                   <span style={{ fontWeight: 650, color: 'var(--ink)' }}>{fmtMoney(amount)}</span>
                 </div>
                 <div className="progress" style={{ height: 14 }}>
-                  <span style={{ width: `${Math.max(4, (amount / Math.max(1, total)) * 100)}%`, background: `linear-gradient(90deg, ${bareTone(category).color}, ${bareTone(category).color}cc)` }} />
+                  <span style={{ width: `${Math.max(4, (amount / Math.max(1, total)) * 100)}%`, background: `linear-gradient(90deg, ${categoryColor(category)}, ${categoryColor(category)}cc)` }} />
                 </div>
               </div>
             ))}
@@ -117,17 +143,13 @@ function ChipDot({ color }: { color: string }) {
   return <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: color, verticalAlign: '-0.5px' }} />
 }
 
-function bareTone(cat: ExpenseCategory) {
-  return CATEGORIES.find((c) => c.id === cat)!
-}
-
-function ExpenseForm({ online, onSaved }: { online: boolean; onSaved: () => void }) {
-  const db = useAppState((s) => s.db)
+function ExpenseForm({ db, online, onSaved }: { db: DB; online: boolean; onSaved: () => void }) {
   const farmers = [...db.farmers].sort((a, b) => a.name.localeCompare(b.name))
   const [farmerId, setFarmerId] = useState('')
   const [date, setDate] = useState(todayInput())
   const [category, setCategory] = useState<ExpenseCategory>('seeds')
-  const [presetVal, setPresetVal] = useState<number | 'custom'>('custom')
+  const [customCategoryMode, setCustomCategoryMode] = useState(false)
+  const [customCategory, setCustomCategory] = useState('')
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
 
@@ -138,32 +160,37 @@ function ExpenseForm({ online, onSaved }: { online: boolean; onSaved: () => void
       toast('Select a farmer', 'alert')
       return
     }
-    const amt = presetVal === 'custom' ? parseFloat(amount) : presetVal
-    if (!amt || amt <= 0) {
+    const amt = parseFloat(amount)
+    if (!Number.isFinite(amt) || amt <= 0) {
       toast('Enter a valid amount', 'alert')
       return
     }
+    if (customCategoryMode && !customCategory.trim()) {
+      toast('Enter a name for your custom expense category.', 'alert')
+      return
+    }
+    const savedCategory = customCategoryMode ? customCategory.trim() : category
     createExpense({
       farmerId: f.id,
       date: date ? new Date(date).toISOString() : new Date().toISOString(),
-      category,
+      category: savedCategory,
       amount: Math.round(amt),
       description: description.trim() || undefined,
     })
     toast(
-      online ? `Expense queued via Cloud API for ${f.name.split(' ')[0]}` : 'Expense saved on device — syncs later',
+      'Expense saved on this device and added to the local queue.',
       online ? 'ok' : 'alert',
     )
     onSaved()
-    setFarmerId(''); setDate(todayInput()); setPresetVal('custom'); setAmount(''); setDescription('')
+    setFarmerId(''); setDate(todayInput()); setAmount(''); setDescription(''); setCustomCategory(''); setCustomCategoryMode(false); setCategory('seeds')
   }
 
   return (
     <form onSubmit={submit}>
-      <div className="form-grid">
-        <Field label="Farmer">
+      <div className="expense-form-grid">
+        <Field label="Farmer profile">
           <select className="select" value={farmerId} onChange={(e) => setFarmerId(e.target.value)} required>
-            <option value="">Select farmer…</option>
+            <option value="">Choose a profile</option>
             {farmers.map((f) => (
               <option key={f.id} value={f.id}>{f.name} — {f.village}</option>
             ))}
@@ -173,54 +200,74 @@ function ExpenseForm({ online, onSaved }: { online: boolean; onSaved: () => void
           <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </Field>
         <Field label="Expense category">
-          <div className="pill-row">
+          <div className="pill-row" role="group" aria-label="Expense category">
             {CATEGORIES.map((c) => (
-              <button type="button" key={c.id} className={`pill${category === c.id ? ' on' : ''}`} onClick={() => setCategory(c.id)}>
+              <button
+                type="button"
+                key={c.id}
+                className={`pill${category === c.id ? ' on' : ''}`}
+                aria-pressed={category === c.id}
+                onClick={() => { setCategory(c.id); setCustomCategoryMode(false) }}
+              >
                 {c.label}
               </button>
             ))}
+            <button
+              type="button"
+              className={`pill${customCategoryMode ? ' on' : ''}`}
+              aria-pressed={customCategoryMode}
+              onClick={() => setCustomCategoryMode(true)}
+            >
+              Custom category
+            </button>
+          </div>
+        </Field>
+
+        {customCategoryMode && (
+          <Field label="Custom category name" className="expense-description">
+            <input
+              className="input"
+              value={customCategory}
+              onChange={(event) => setCustomCategory(event.target.value)}
+              placeholder="Type the category name (e.g. Labor)"
+              maxLength={60}
+              required
+            />
+          </Field>
+        )}
+        <Field
+          label="Description (optional)"
+          hint="Add more details about this expense if needed."
+          className="expense-description"
+        >
+          <textarea
+            className="textarea"
+            style={{ minHeight: 72 }}
+            placeholder="Add details about this expense"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </Field>
+
+        <Field label="Amount (₱)">
+          <div className="amount-wrap">
+            <span className="amount-prefix">₱</span>
+            <input
+              className="input"
+              type="number"
+              inputMode="decimal"
+              min="1"
+              step="1"
+              placeholder="Enter amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+            />
           </div>
         </Field>
       </div>
 
-      <Field label="Amount (₱)">
-        <div className="pill-row mb-3">
-          {PRESET_AMOUNTS.map((a) => (
-            <button type="button" key={a} className={`pill pill-sm${presetVal === a ? ' on' : ''}`} onClick={() => setPresetVal(a)}>
-              ₱{a.toLocaleString()}
-            </button>
-          ))}
-          <button type="button" className={`pill pill-sm${presetVal === 'custom' ? ' on' : ''}`} onClick={() => setPresetVal('custom')}>
-            Custom…
-          </button>
-        </div>
-        {presetVal === 'custom' && (
-          <div className="amount-wrap">
-            <span className="amount-prefix">₱</span>
-            <input
-              className="input mono"
-              inputMode="decimal"
-              placeholder="0"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              required
-              autoFocus
-            />
-          </div>
-        )}
-      </Field>
-
-      <Field label="Description" hint="Optional — what the expense was for.">
-        <textarea
-          className="textarea"
-          style={{ minHeight: 64 }}
-          placeholder="e.g. Inbred rice seed for wet season planting"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </Field>
-
-      <div className="flex gap-md mt-4" style={{ justifyContent: 'flex-end' }}>
+      <div className="flex gap-md mt-3 expense-form-actions">
         <button type="button" className="btn btn-ghost" onClick={onSaved}>Cancel</button>
         <Button type="submit">
           <IconPlus width={15} height={15} /> Save expense
@@ -230,21 +277,20 @@ function ExpenseForm({ online, onSaved }: { online: boolean; onSaved: () => void
   )
 }
 
-function RecordsTable({ expenses }: { expenses: Expense[] }) {
-  const db = useAppState((s) => s.db)
+function RecordsTable({ expenses, farmers }: { expenses: Expense[]; farmers: DB['farmers'] }) {
   const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<'all' | ExpenseCategory>('all')
+  const [filter, setFilter] = useState<'' | ExpenseCategory>('')
 
   const query = q.trim().toLowerCase()
   const rows = expenses
-    .map((e) => ({ expense: e, farmerName: db.farmers.find((f) => f.id === e.farmerId)?.name ?? 'Unknown' }))
+    .map((e) => ({ expense: e, farmerName: farmers.find((farmer) => farmer.id === e.farmerId)?.name ?? 'Unknown' }))
     .filter(({ expense, farmerName }) => {
       const matchQ =
         !query ||
         farmerName.toLowerCase().includes(query) ||
         expense.description?.toLowerCase().includes(query) ||
-        CATEGORY_LABEL[expense.category].toLowerCase().includes(query)
-      const matchF = filter === 'all' || expense.category === filter
+        categoryLabel(expense.category).toLowerCase().includes(query)
+      const matchF = !filter || expense.category === filter
       return matchQ && matchF
     })
 
@@ -259,11 +305,13 @@ function RecordsTable({ expenses }: { expenses: Expense[] }) {
             <IconSearch width={18} height={18} />
             <input className="input" placeholder="Search farmer, description or category…" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          <select className="select" style={{ width: 170 }} value={filter} onChange={(e) => setFilter(e.target.value as 'all' | ExpenseCategory)}>
-            <option value="all">All categories</option>
-            {CATEGORIES.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
-            ))}
+          <select className="select" style={{ width: 170 }} value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="">All categories</option>
+            {[...new Set(expenses.map((expense) => expense.category))]
+              .sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b)))
+              .map((category) => (
+                <option key={category} value={category}>{categoryLabel(category)}</option>
+              ))}
           </select>
         </div>
 
@@ -279,12 +327,13 @@ function RecordsTable({ expenses }: { expenses: Expense[] }) {
                 <span className="mono">Amount</span>
               </div>
               {rows.map(({ expense, farmerName }) => {
-                const t = bareTone(expense.category)
                 return (
                   <div className="expense-row" key={expense.id}>
                     <span>{fmtDate(expense.date)}</span>
                     <span>{farmerName}</span>
-                    <span><Chip tone={t.tone}>{CATEGORY_LABEL[expense.category]}</Chip></span>
+                    <span>
+                      <Chip tone={categoryTone(expense.category)}>{categoryLabel(expense.category)}</Chip>
+                    </span>
                     <span className="mono" style={{ fontWeight: 650, color: 'var(--ink)' }}>{fmtMoney(expense.amount)}</span>
                   </div>
                 )
@@ -304,9 +353,10 @@ function RecordsTable({ expenses }: { expenses: Expense[] }) {
 function downloadReport(db: DB): void {
   const farmerName = (id: string) => db.farmers.find((f) => f.id === id)?.name ?? 'Unknown'
   const header = 'Date,Farmer,Category,Amount,Description'
+  const csvCell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
   const lines = db.expenses.map((e) => {
-    return [e.date.slice(0, 10), farmerName(e.farmerId), e.category, e.amount, (e.description ?? '').replace(/"/g, '""')]
-      .map((v) => `"${v}"`)
+    return [e.date.slice(0, 10), farmerName(e.farmerId), e.category, e.amount, e.description ?? '']
+      .map(csvCell)
       .join(',')
   })
   const blob = new Blob([[header, ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' })
@@ -315,7 +365,7 @@ function downloadReport(db: DB): void {
   a.href = url
   a.download = `rice-farm-expense-report-${new Date().toISOString().slice(0, 10)}.csv`
   a.click()
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
   toast('Expense report generated — download started')
 }
 

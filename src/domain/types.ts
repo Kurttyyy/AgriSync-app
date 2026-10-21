@@ -4,24 +4,15 @@ export type ChannelId = 'cloud-api' | 'sms-gateway' | 'ussd-gateway' | 'gmail'
 
 export type Health = 'good' | 'fair' | 'poor'
 export type Risk = 'low' | 'medium' | 'high'
-export type ExpenseCategory = 'seeds' | 'fertilizer' | 'fuel' | 'other'
+export type ExpenseCategory = 'seeds' | 'fertilizer' | 'fuel' | (string & {})
 
-export interface Agent {
-  id: ID
-  name: string
-  role: string
-  region: string
-  badge: string
-  initials: string
-  channels: ChannelId[]
-}
-
-export type UserRole = 'farmer-admin' | 'field-agent'
+export type UserRole = 'farmer'
 
 export interface User {
   id: ID
   username: string
-  password: string
+  password?: string
+  passwordHash?: string
   name: string
   role: UserRole
   roleLabel: string
@@ -29,16 +20,19 @@ export interface User {
   badge: string
   initials: string
   channels: ChannelId[]
+  farmerId?: ID
+  farmerIds?: ID[]
 }
 
+export type AuthUser = Omit<User, 'password' | 'passwordHash'>
+
 export interface AuthState {
-  user: User | null
+  user: AuthUser | null
   authenticated: boolean
 }
 
 export interface Farmer {
   id: ID
-  agentId: ID
   name: string
   phone: string
   email?: string
@@ -70,7 +64,6 @@ export interface Plot {
 export interface Visit {
   id: ID
   farmerId: ID
-  agentId: ID
   date: string
   purpose: string
   cropStage: string
@@ -115,12 +108,12 @@ export interface EmailRecord {
 export interface CashAdvance {
   id: ID
   farmerId: ID
-  kind: 'microloan' | 'equipment' | 'inputs-financing' | 'grant'
+  kind: 'cash-advance' | 'equipment' | 'inputs-financing' | 'grant'
   label: string
   principal: number
   disbursedDate: string
-  interestRatePct: number
   dueDate: string
+  dueAfterHarvest?: boolean
   status: 'active' | 'repaid' | 'overdue' | 'defaulted'
   repayments: Repayment[]
   farmerMessages?: FarmerNote[]
@@ -170,7 +163,6 @@ export interface SyncLog {
 }
 
 export interface AppSettings {
-  agentName: string
   region: string
   autoSync: boolean
   preferredChannel: ChannelId

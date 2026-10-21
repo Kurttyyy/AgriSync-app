@@ -4,7 +4,6 @@ import { useAppState } from '../data/store'
 import { createVisit } from '../data/repository'
 import { toast, Button, Field } from '../components/kit'
 import { IconChevronLeft } from '../components/icons'
-import { CHANNELS } from '../data/sync'
 
 const PESTS = ['Fall armyworm', 'Aphids', 'Rodents', 'None']
 const INPUTS = ['Compound D', 'Urea', 'Pre-emergent herbicide', 'Compost', 'Pest spray']
@@ -14,7 +13,6 @@ export default function NewVisit() {
   const nav = useNavigate()
   const farmer = useAppState((s) => s.db.farmers.find((f) => f.id === id))
   const online = useAppState((s) => s.online)
-  const preferred = useAppState((s) => s.settings.preferredChannel)
 
   const [form, setForm] = useState({
     purpose: '',
@@ -32,7 +30,13 @@ export default function NewVisit() {
   function toggle(list: 'pests' | 'inputs', value: string) {
     setForm((f) => {
       const arr = f[list]
-      const next = arr.includes(value) ? arr.filter((x) => x !== value) : [...arr, value]
+      const next = list === 'pests'
+        ? value === 'None'
+          ? arr.includes('None') ? [] : ['None']
+          : arr.includes(value)
+            ? arr.filter((item) => item !== value)
+            : [...arr.filter((item) => item !== 'None'), value]
+        : arr.includes(value) ? arr.filter((item) => item !== value) : [...arr, value]
       return { ...f, [list]: next }
     })
   }
@@ -55,9 +59,7 @@ export default function NewVisit() {
       followUpDate: form.followUpDate ? new Date(form.followUpDate).toISOString() : undefined,
     })
     toast(
-      online
-        ? `Visit queued via ${CHANNELS[preferred].short}`
-        : 'Visit saved on device — will sync when reconnected',
+      'Visit saved on this device and added to the local queue.',
       online ? 'ok' : 'alert',
     )
     nav(`/farmers/${f.id}`)
@@ -128,8 +130,7 @@ export default function NewVisit() {
         {!online && (
           <div className="card mt-4" style={{ borderColor: 'rgba(217,154,43,.4)', background: 'var(--gold-soft)' }}>
             <div style={{ fontSize: 13, color: 'var(--gold-ink)', fontWeight: 600 }}>
-              Offline mode: this visit is stored on device and will be pushed to the
-              {form.pests.some((p) => p !== 'None') ? ' team at head office' : ' records hub'} when you reconnect.
+              Offline mode: this visit is stored on this device and remains queued until sync is available.
             </div>
           </div>
         )}

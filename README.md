@@ -1,68 +1,55 @@
-# Rice Farm Expense Recording and Monitoring System
+# AgriSync
 
-**Digital expense recording and monitoring system for rice farms.**
+AgriSync is a farmer-facing farm-record application for tracking farm profiles, plots, expenses, visits, and cash advances received. It is a React + TypeScript + Vite progressive web app.
 
-Rice Farm Expense Recording and Monitoring System is an offline-first, PWA-ready console for rice farm
-administrators. Administrators capture farmer profiles, plots, field assessments, investments, repayments and
-farm-expense records on-device; everything is queued in an **outbox** and delivered to head office through
-**multiple channels** (Cloud API, SMS gateway, USSD rails) whenever a connection is available. Analytics are
-aggregated locally from the on-device snapshot, so expense monitoring and financial decisions keep working with
-zero coverage.
+## Features
 
-Sectors covered: **Agriculture**, **Financial Inclusion** (credit-risk profiles, microloans, repayments), and
-**Business Systems Integration** (local-first data layer + multi-channel sync engine).
+- Supabase email/password accounts and farmer records stored in PostgreSQL.
+- A local browser cache for offline access, with changes uploaded to the database when connected.
+- Dashboard summaries for the signed-in farmer's records.
+- Plot, expense, and farm-visit records linked to a farm profile.
+- Cash-advance records with repayment tracking and due dates, including an “After harvest” option. Cash advances do not use an interest rate.
+- Search and filters for reviewing farm records.
+- CSV export for expense reports.
+- Offline access to locally saved records, with a sync queue and sync simulator.
 
-## Stack
+## Database setup
 
-- Vite + React 19 + TypeScript
-- `react-router-dom` — screen routing
-- `recharts` — on-device analytics charts
-- `vite-plugin-pwa` — service worker + installable manifest (offline works out of the box)
-- `@fontsource-variable/inter` — bundled fonts (no CDN, works offline)
-- Custom typed store over `localStorage` (`src/data/store.ts`) with a `useSyncExternalStore` hook
+1. Create a Supabase project.
+2. In the Supabase SQL Editor, run [`supabase/migrations/20261021000000_create_farmer_data.sql`](./supabase/migrations/20261021000000_create_farmer_data.sql). This creates a per-account data table protected by row-level security.
+3. In the project root beside `package.json`, copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your Supabase project settings. The publishable/anon key is intended for browser use; never put a `service_role` key in this app.
+4. Restart the Vite dev server. Configure the same two environment variables in your deployment provider before building.
+5. In Supabase Authentication settings, configure the allowed site/redirect URLs for local development and your deployed domain. If email confirmation is enabled, new users must confirm their email before signing in.
 
-## Architecture
+Authentication is handled by Supabase Auth. Each signed-in account can access only its own `farmer_data` row; row-level security is enforced by the migration. Records are cached in the browser for offline access and saved to Supabase when online.
 
-```
-src/
-  domain/types.ts        entity model (Farmer, Plot, Visit, Investment, OutboxItem, SyncLog)
-  data/
-    store.ts             reactive, persistent app state (localStorage-backed)
-    repository.ts        CRUD — local-first writes queued to the outbox
-    sync.ts              sync engine + multi-channel simulator (latency, retries, failures)
-    seed.ts              rich demo dataset (relative dates, always "current")
-    selectors.ts         local aggregation for dashboards & analytics
-    format.ts / util.ts  formatting + ids/dates
-  components/
-    layout.tsx           app shell: top bar, bottom nav, offline banner, reconnect auto-sync
-    kit.tsx              primitives (chips, stats, modal, toast, confirm)
-    charts.tsx           recharts wrappers
-    icons.tsx            inline SVG icon set (no icon library)
-  screens/               Login, Dashboard, Farmers, FarmerDetail, FarmerForm, NewVisit,
-                         Investments, Analytics, SyncCenter, Settings
-```
+The Sync Status page still includes a simulator for SMS, USSD, and email delivery. Those channels do not deliver messages. Saving farm records to Supabase is separate from the message simulator.
 
-## Key behaviors
+Existing accounts and records from the MySQL version are not automatically migrated. Browser-local records are preserved under `agriledger.legacy.db.v1` and are not uploaded automatically.
 
-- **Offline-first**: every create/update writes locally and appends an `OutboxItem`
-  (`pending → syncing → synced/failed`). Reads always hit the local snapshot.
-- **Multi-channel delivery**: items route by entity — farmers over SMS, plots/visits over the
-  Cloud API, investments over USSD — with realistic latency and ~5–12% failure to demo retry.
-- **Reconnect auto-sync**: toggled in Settings; honours an interval retry for failed deliveries.
-- **On-device analytics**: charts compute from the local snapshot and work fully offline.
-- **PWA**: precaches the shell; fonts bundled; installable with brand icons.
+## Requirements
 
-## Commands
+- Node.js and npm
+
+## Run locally
 
 ```sh
 npm install
-npm run dev       # local dev
-npm run build     # typecheck + production build (incl. service worker)
-npm run preview   # serve the built app
-npm run lint      # eslint
+npm run dev
 ```
 
-## Prototype notes
+Vite prints the local development URL in the terminal.
 
-Sync is simulated in `src/data/sync.ts` (no real backend yet). The demo dataset in `src/data/seed.ts`
-uses relative dates so the dashboards always look live. Reset to the fresh seed from **Settings → Reset local data**.
+## Install on a phone or computer
+
+Deploy the app to an HTTPS URL, then open that URL in a supported browser. Use the **Install app** prompt when offered, or select **Install app / Add to Home screen** from the browser menu. On iPhone or iPad, open the site in Safari, tap **Share**, then choose **Add to Home Screen**. Once installed, launch AgriSync from its new home-screen icon.
+
+## Checks and production build
+
+```sh
+npm run lint
+npm run build
+npm run preview
+```
+
+The production build is generated in `dist/`.

@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { useAppState } from '../data/store'
 import { createPlot } from '../data/repository'
 import { createExpense } from '../data/repository'
-import { deleteFarmer } from '../data/repository'
 import { totalRepaid } from '../data/repository'
-import { fmtDate, fmtMoney, fmtRelative, fmtShortDate } from '../data/format'
-import { Avatar, Chip, confirmDialog, HEALTH_TONE, Initials, Meta, toast, Button, Field, Seg } from '../components/kit'
+import { cashAdvanceStatus, dbForUser } from '../data/selectors'
+import { fmtCashAdvanceDueDate, fmtDate, fmtMoney, fmtRelative, fmtShortDate } from '../data/format'
+import { Avatar, Chip, HEALTH_TONE, Initials, Meta, toast, Button, Field, Seg } from '../components/kit'
 import {
   IconBell,
   IconChevronLeft,
@@ -18,17 +18,16 @@ import {
   IconPhone,
   IconPlus,
   IconSync,
-  IconTrash,
   IconWallet,
 } from '../components/icons'
-import { CHANNELS } from '../data/sync'
 import type { ExpenseCategory } from '../domain/types'
-import { CATEGORIES, CATEGORY_LABEL } from './Expenses'
+import { CATEGORIES, categoryLabel, categoryTone } from './Expenses'
 
 export default function FarmerDetail() {
-  const nav = useNavigate()
   const { id } = useParams()
-  const db = useAppState((s) => s.db)
+  const allDb = useAppState((s) => s.db)
+  const user = useAppState((s) => s.auth.user)
+  const db = dbForUser(allDb, user)
   const online = useAppState((s) => s.online)
   const farmer = db.farmers.find((f) => f.id === id)
 
@@ -47,6 +46,8 @@ export default function FarmerDetail() {
   const [expense, setExpense] = useState({
     date: new Date().toISOString().slice(0, 10),
     category: 'seeds' as ExpenseCategory,
+    customCategory: '',
+    customCategoryMode: false,
     amount: '',
     description: '',
   })
@@ -55,7 +56,7 @@ export default function FarmerDetail() {
     return (
       <div className="card">
         <p>Farmer not found.</p>
-        <Link to="/farmers" className="btn btn-ghost mt-4">Back to farmers</Link>
+        <Link to="/" className="btn btn-ghost mt-4">Back to home</Link>
       </div>
     )
   }
@@ -71,54 +72,73 @@ export default function FarmerDetail() {
     .sort((a, b) => b.date.localeCompare(a.date))
   const expensesTotal = expenses.reduce((s, e) => s + e.amount, 0)
   const outstanding = cashAdvances.reduce(
-    (sum, i) => sum + (i.status === 'active' || i.status === 'overdue' ? i.principal - totalRepaid(i) : 0),
+    (sum, i) => sum + (['active', 'overdue'].includes(cashAdvanceStatus(i)) ? Math.max(0, i.principal - totalRepaid(i)) : 0),
     0,
   )
 
   function addPlot(e: FormEvent) {
     e.preventDefault()
-    createPlot(
-      {
+    const areaHa = Number(plot.areaHa)
+    const expectedYieldT = Number(plot.expectedYieldT)
+    const plantedDate = new Date(`${plot.plantedDate}T00:00:00`)
+    if (!Number.isFinite(areaHa) || areaHa <= 0 || !Number.isFinite(expectedYieldT) || expectedYieldT < 0) {
+      toast('Enter a valid plot area and expected yield.', 'alert')
+      return
+    }
+    if (!plot.plantedDate || !Number.isFinite(plantedDate.getTime())) {
+      toast('Choose a valid planting date.', 'alert')
+      return
+    }
+    createPlot({
         farmerId: f.id,
         name: plot.name.trim() || `${plot.crop} field`,
         crop: plot.crop,
-        areaHa: parseFloat(plot.areaHa) || 1,
+        areaHa,
         soilType: plot.soilType,
         season: plot.season,
-        plantedDate: new Date(plot.plantedDate).toISOString(),
-        expectedYieldT: parseFloat(plot.expectedYieldT) || 0,
+        plantedDate: plantedDate.toISOString(),
+        expectedYieldT,
         health: plot.health as 'good' | 'fair' | 'poor',
-      },
-      { quiet: plots.length === 0 },
-    )
-    toast(`Plot added — queued via ${CHANNELS['cloud-api'].short}`)
+      })
+    toast('Plot saved on this device and added to the local queue.', online ? 'ok' : 'alert')
     setShowPlot(false)
   }
 
   function addExpense(e: FormEvent) {
     e.preventDefault()
     const amt = parseFloat(expense.amount)
-    if (!amt || amt <= 0) {
+    if (!Number.isFinite(amt) || amt <= 0) {
       toast('Enter a valid amount', 'alert')
+      return
+    }
+    if (expense.customCategoryMode && !expense.customCategory.trim()) {
+      toast('Enter a name for your custom expense category.', 'alert')
       return
     }
     createExpense({
       farmerId: f.id,
       date: new Date(expense.date).toISOString(),
-      category: expense.category,
+      category: expense.customCategoryMode ? expense.customCategory.trim() : expense.category,
       amount: Math.round(amt),
       description: expense.description.trim() || undefined,
     })
-    toast(`Expense saved — queued via ${CHANNELS['cloud-api'].short}`)
+    toast('Expense saved on this device and added to the local queue.', online ? 'ok' : 'alert')
     setShowExpense(false)
-    setExpense({ date: new Date().toISOString().slice(0, 10), category: 'seeds', amount: '', description: '' })
+    setExpense({
+      date: new Date().toISOString().slice(0, 10),
+      category: 'seeds',
+      customCategory: '',
+      customCategoryMode: false,
+      amount: '',
+      description: '',
+    })
   }
 
   return (
     <>
       <div className="page-header">
         <div className="flex gap-md">
-          <Link to="/farmers" className="icon-btn" aria-label="Back">
+          <Link to="/" className="icon-btn" aria-label="Back">
             <IconChevronLeft />
           </Link>
           <div>
@@ -128,18 +148,6 @@ export default function FarmerDetail() {
         </div>
         <div className="flex gap-md">
           <Link to={`/farmers/${f.id}/edit`} className="btn btn-ghost btn-sm">Edit profile</Link>
-          <button
-            className="btn btn-danger-ghost btn-sm"
-            onClick={() =>
-              confirmDialog(`Delete ${f.name}?`, `${f.village} and her plots, visits and cash advance records will be removed from your device and queued for deletion on the central server.`, () => {
-                deleteFarmer(f.id)
-                toast(online ? `Farmer deletion queued via ${CHANNELS['sms-gateway'].short}` : 'Farmer deleted — saves when reconnected', online ? 'ok' : 'alert')
-                nav('/farmers')
-              })
-            }
-          >
-            <IconTrash width={14} height={14} /> Delete
-          </button>
         </div>
       </div>
 
@@ -166,7 +174,6 @@ export default function FarmerDetail() {
                   {f.creditRisk} credit risk
                 </Chip>
                 <Chip tone="tone-brand">Joined {fmtRelative(f.joinedDate)}</Chip>
-                <Chip tone="tone-gold">{f.sourceChannel} · origin</Chip>
               </div>
             </div>
           </div>
@@ -205,7 +212,7 @@ export default function FarmerDetail() {
           <div className="flex gap-sm mt-4" style={{ background: 'var(--amber-soft)', borderRadius: 10, padding: '10px 12px' }}>
             <IconSync width={16} height={16} style={{ color: 'var(--amber)' }} />
             <span style={{ fontSize: 13, color: 'var(--gold-ink)' }}>
-              Changes save on this device and sync automatically when you reconnect.
+              Changes are saved on this device and added to the local queue while you are offline.
             </span>
           </div>
         )}
@@ -233,7 +240,7 @@ export default function FarmerDetail() {
               </select>
             </Field>
             <Field label="Area (ha)">
-              <input className="input" type="number" step="0.1" value={plot.areaHa} onChange={(e) => setPlot({ ...plot, areaHa: e.target.value })} />
+              <input className="input" type="number" min="0.1" step="0.1" value={plot.areaHa} onChange={(e) => setPlot({ ...plot, areaHa: e.target.value })} required />
             </Field>
             <Field label="Soil type">
               <select className="select" value={plot.soilType} onChange={(e) => setPlot({ ...plot, soilType: e.target.value })}>
@@ -246,10 +253,10 @@ export default function FarmerDetail() {
               </select>
             </Field>
             <Field label="Planted">
-              <input className="input" type="date" value={plot.plantedDate} onChange={(e) => setPlot({ ...plot, plantedDate: e.target.value })} />
+              <input className="input" type="date" value={plot.plantedDate} onChange={(e) => setPlot({ ...plot, plantedDate: e.target.value })} required />
             </Field>
             <Field label="Expected yield (t)">
-              <input className="input" type="number" step="0.1" value={plot.expectedYieldT} onChange={(e) => setPlot({ ...plot, expectedYieldT: e.target.value })} />
+              <input className="input" type="number" min="0" step="0.1" value={plot.expectedYieldT} onChange={(e) => setPlot({ ...plot, expectedYieldT: e.target.value })} required />
             </Field>
             <Field label="Crop health">
               <div className="pill-row">
@@ -263,7 +270,7 @@ export default function FarmerDetail() {
           </div>
           <div className="flex gap-md mt-4">
             <Button type="submit" block>Save plot</Button>
-            <button className="btn btn-ghost" onClick={() => setShowPlot(false)}>Cancel</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setShowPlot(false)}>Cancel</button>
           </div>
         </form>
       )}
@@ -315,7 +322,7 @@ export default function FarmerDetail() {
                 <span className="feed-icon"><IconExpense width={15} height={15} /></span>
                 <div className="feed-body grow">
                   <div className="feed-title">
-                    <Chip tone={expenseTone(e.category)}>{CATEGORY_LABEL[e.category]}</Chip>
+                    <Chip tone={categoryTone(e.category)}>{categoryLabel(e.category)}</Chip>
                     {' '}{e.description ?? 'Farm expense'}
                   </div>
                   <div className="feed-sub">{fmtDate(e.date)}</div>
@@ -343,17 +350,44 @@ export default function FarmerDetail() {
                 <input className="input" type="date" value={expense.date} onChange={(e) => setExpense({ ...expense, date: e.target.value })} required />
               </Field>
               <Field label="Category">
-                <select className="select" value={expense.category} onChange={(e) => setExpense({ ...expense, category: e.target.value as ExpenseCategory })}>
+                <select
+                  className="select"
+                  value={expense.customCategoryMode ? '__custom__' : expense.category}
+                  onChange={(e) => setExpense({ ...expense, customCategoryMode: e.target.value === '__custom__', ...(e.target.value === '__custom__' ? {} : { category: e.target.value }) })}
+                >
                   {CATEGORIES.map((c) => (
                     <option key={c.id} value={c.id}>{c.label}</option>
                   ))}
+                  <option value="__custom__">Add category</option>
                 </select>
               </Field>
+              {expense.customCategoryMode && (
+                <Field label="Category name">
+                  <input
+                    className="input"
+                    value={expense.customCategory}
+                    onChange={(e) => setExpense({ ...expense, customCategory: e.target.value })}
+                    placeholder="Type a category (e.g. Labor)"
+                    maxLength={60}
+                    required
+                  />
+                </Field>
+              )}
               <Field label="Amount (₱)">
                 <input className="input mono" inputMode="decimal" placeholder="0" value={expense.amount} onChange={(e) => setExpense({ ...expense, amount: e.target.value })} required />
               </Field>
-              <Field label="Description" className="grow">
-                <input className="input" placeholder="What was it for?" value={expense.description} onChange={(e) => setExpense({ ...expense, description: e.target.value })} />
+              <Field
+                label="Description (optional)"
+                hint="Add more details about this expense if needed."
+                className="grow"
+              >
+                <textarea
+                  className="textarea"
+                  style={{ minHeight: 64 }}
+                  placeholder="Add details about this expense"
+                  value={expense.description}
+                  onChange={(e) => setExpense({ ...expense, description: e.target.value })}
+                />
               </Field>
             </div>
             <Button type="submit" block className="mt-3">
@@ -376,6 +410,7 @@ export default function FarmerDetail() {
         ) : (
           cashAdvances.map((inv) => {
             const pct = Math.min(100, Math.round((totalRepaid(inv) / Math.max(1, inv.principal)) * 100))
+            const status = cashAdvanceStatus(inv)
             return (
               <Link to="/cash-advances" key={inv.id} className="row-link">
                 <span className="avatar" style={{ background: 'linear-gradient(150deg,#d99a2b,#c78a1f)', width: 38, height: 38 }}>
@@ -383,9 +418,9 @@ export default function FarmerDetail() {
                 </span>
                 <div className="row-main">
                   <div className="row-title">{inv.label}</div>
-<div className="row-sub">{fmtMoney(inv.principal)} · {pct}% repaid · due {fmtShortDate(inv.dueDate)}</div>
+<div className="row-sub">{fmtMoney(inv.principal)} · {pct}% repaid · due {fmtCashAdvanceDueDate(inv.dueDate, inv.dueAfterHarvest)}</div>
                 <div className="progress mt-2" style={{ height: 5 }}>
-                  <span style={{ width: `${pct}%`, background: inv.status === 'overdue' ? 'var(--red)' : undefined }} />
+                  <span style={{ width: `${pct}%`, background: status === 'overdue' ? 'var(--red)' : undefined }} />
                 </div>
               </div>
               {inv.farmerMessages && inv.farmerMessages.length > 0 && (
@@ -393,8 +428,8 @@ export default function FarmerDetail() {
                   <IconBell width={12} height={12} /> {inv.farmerMessages.length}
                 </Chip>
               )}
-              <Chip tone={inv.status === 'overdue' ? 'tone-red' : inv.status === 'repaid' ? 'tone-green' : 'tone-blue'}>
-                  {inv.status}
+              <Chip tone={status === 'overdue' ? 'tone-red' : status === 'repaid' ? 'tone-green' : 'tone-blue'}>
+                  {status}
                 </Chip>
                 <IconChevronRight width={16} height={16} style={{ color: 'var(--muted)' }} />
               </Link>
@@ -404,8 +439,4 @@ export default function FarmerDetail() {
       </section>
     </>
   )
-}
-
-function expenseTone(cat: ExpenseCategory): string {
-  return CATEGORIES.find((c) => c.id === cat)?.tone ?? 'tone-grey'
 }

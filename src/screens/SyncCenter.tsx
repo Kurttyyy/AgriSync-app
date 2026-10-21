@@ -1,5 +1,6 @@
 import { useAppState } from '../data/store'
 import { CHANNELS, discardSynced, retryAllFailed, retryItem, runSync } from '../data/sync'
+import { dbForUser, outboxForUser } from '../data/selectors'
 import { fmtRelative, fmtTimeOfDay } from '../data/format'
 import { Chip, statusTone, toast } from '../components/kit'
 import { IconCheck, IconClock, IconCloudOff, IconMail, IconRefresh, IconSync, IconTrash } from '../components/icons'
@@ -16,7 +17,11 @@ const ENTITY_LABEL: Record<OutboxItem['entity'], string> = {
 }
 
 export default function SyncCenter() {
-  const outbox = useAppState((s) => s.outbox)
+  const user = useAppState((s) => s.auth.user)
+  const allDb = useAppState((s) => s.db)
+  const db = dbForUser(allDb, user)
+  const allOutbox = useAppState((s) => s.outbox)
+  const outbox = outboxForUser(allOutbox, db)
   const logs = useAppState((s) => s.syncLogs)
   const syncing = useAppState((s) => s.syncing)
   const pct = useAppState((s) => s.syncingPct)
@@ -35,8 +40,9 @@ export default function SyncCenter() {
     <>
       <div className="page-header">
         <div>
-          <div className="crumb">Multi-channel delivery</div>
+          <div className="crumb">Local sync queue</div>
           <h1 className="mt-2">Sync Center</h1>
+          <p className="text-sm mt-2">Review your queued records. Delivery is simulated in this prototype.</p>
         </div>
         <span className={`chip ${online ? 'tone-green' : 'tone-amber'}`}>
           <span className="dot" />
@@ -59,13 +65,15 @@ export default function SyncCenter() {
             {failed.length > 0
               ? `${failed.length} item${failed.length === 1 ? '' : 's'} need attention`
               : syncing
-                ? `Syncing… ${pct}%`
+                ? `Processing… ${pct}%`
                 : activeCount > 0
-                  ? `${activeCount} item${activeCount === 1 ? '' : 's'} waiting to sync`
+                  ? `${activeCount} item${activeCount === 1 ? '' : 's'} waiting to be processed`
                   : 'Outbox clear'}
           </h2>
           <p className="text-sm text-mute mt-2">
-            {online ? `Last channel response ${fmtRelative(lastSync)}` : 'No network — work will queue locally.'}
+            {online
+              ? lastSync ? `Last local processing run ${fmtRelative(lastSync)}.` : 'No records have been processed yet.'
+              : 'No network — work stays queued on this device.'}
           </p>
           {syncing && <div className="progress mt-3"><span style={{ width: `${pct}%` }} /></div>}
         </div>
@@ -77,22 +85,33 @@ export default function SyncCenter() {
           disabled={syncing || activeCount === 0}
           onClick={() => {
             if (!online) {
-              toast('Connect to a network to sync', 'alert')
+              toast('Connect to the network to process queued records', 'alert')
               return
             }
-            void runSync('manual').then((n) =>
-              toast(n > 0 ? `${n} record${n === 1 ? '' : 's'} delivered` : 'Nothing to sync'),
+            void runSync('manual', new Set(outbox.map((item) => item.id))).then((n) =>
+              toast(n > 0 ? `${n} record${n === 1 ? '' : 's'} processed by the simulator` : 'Nothing to process'),
             )
           }}
         >
           {syncing ? <IconSync className="spin" width={16} height={16} /> : <IconSync width={16} height={16} />}
-          {syncing ? 'Syncing…' : `Sync ${activeCount > 0 ? activeCount : 'now'}`}
+          {syncing ? 'Processing…' : `Process ${activeCount > 0 ? activeCount : 'queue'}`}
         </button>
-        <button className="btn btn-ghost" disabled={failed.length === 0} onClick={retryAllFailed}>
+        <button
+          className="btn btn-ghost"
+          disabled={failed.length === 0}
+          onClick={() => retryAllFailed(new Set(failed.map((item) => item.id)))}
+        >
           <IconRefresh width={15} height={15} /> Retry failed
         </button>
-        <button className="btn btn-soft" disabled={synced.length === 0} onClick={() => { discardSynced(); toast('Synced history cleared from device') }}>
-          <IconTrash width={15} height={15} /> Clear synced
+        <button
+          className="btn btn-soft"
+          disabled={synced.length === 0}
+          onClick={() => {
+            discardSynced(new Set(synced.map((item) => item.id)))
+            toast('Your processed queue history was cleared from this device')
+          }}
+        >
+          <IconTrash width={15} height={15} /> Clear processed
         </button>
       </div>
 
@@ -116,7 +135,7 @@ export default function SyncCenter() {
                   {o.error && <span style={{ color: 'var(--red)', display: 'block' }}>{o.error}</span>}
                 </div>
               </div>
-              <Chip tone={statusTone(o.status)}>{o.status}</Chip>
+              <Chip tone={statusTone(o.status)}>{o.status === 'synced' ? 'processed' : o.status}</Chip>
               <Chip tone="tone-brand">{CHANNELS[o.channel].short}</Chip>
               <span className="text-xs text-mute" style={{ whiteSpace: 'nowrap' }}>{fmtRelative(o.createdAt)}</span>
               {o.status === 'failed' && (
@@ -129,18 +148,18 @@ export default function SyncCenter() {
         </section>
       )}
 
-      <div className="seg-title mt-5">Channel delivery history</div>
+      <div className="seg-title mt-5">Device sync history</div>
       <section className="card">
         {history.length === 0 ? (
           <p className="text-sm text-mute">
-            No syncs yet. New records delivered over the Cloud API, SMS gateway and USSD rails will appear here.
+            No syncs yet. Simulated sync attempts on this device will appear here.
           </p>
         ) : (
           history.slice(0, 10).map((l) => <LogRow key={l.id} l={l} />)
         )}
       </section>
 
-      <div className="seg-title mt-5">Channels</div>
+      <div className="seg-title mt-5">Simulated delivery channels</div>
       <section className="card">
         {(Object.keys(CHANNELS) as (keyof typeof CHANNELS)[]).map((id) => (
           <div className="feed-item" key={id}>
@@ -174,7 +193,7 @@ function LogRow({ l }: { l: SyncLog }) {
           {l.failed > 0 && <Chip tone="tone-red">{l.failed} failed</Chip>}
         </div>
         <div className="row-sub mono">
-          {l.items} item{l.items === 1 ? '' : 's'} · {l.synced} delivered · {l.triggeredBy}
+          {l.items} item{l.items === 1 ? '' : 's'} · {l.synced} processed by simulator · {l.triggeredBy}
         </div>
       </div>
       <span className="text-xs text-mute" style={{ whiteSpace: 'nowrap' }}>

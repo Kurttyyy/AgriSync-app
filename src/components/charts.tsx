@@ -106,7 +106,7 @@ export function Donut({
             <Cell key={i} fill={colors[i % colors.length]} />
           ))}
         </Pie>
-        <Tooltip {...tooltipStyle()} formatter={(v) => [v, 'Amount (ZAR)']} />
+        <Tooltip {...tooltipStyle()} formatter={(v) => [v, 'Amount (PHP)']} />
         <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" iconSize={8} />
       </PieChart>
     </ResponsiveContainer>

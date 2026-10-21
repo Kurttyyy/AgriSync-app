@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { login } from '../data/store'
+import { Link, useNavigate } from 'react-router-dom'
+import { login, useAppState } from '../data/store'
 import { Button, Field } from '../components/kit'
-import { IconLeaf } from '../components/icons'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -10,8 +9,9 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const databaseError = useAppState((state) => state.databaseError)
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (busy) return
     setError(null)
@@ -21,13 +21,18 @@ export default function Login() {
       setBusy(false)
       return
     }
-    const user = login(username, password)
-    setBusy(false)
-    if (!user) {
-      setError('Invalid username or password. Use the demo credentials below.')
-      return
+    try {
+      const user = await login(username, password)
+      if (!user) {
+        setError('Email or password is incorrect.')
+        return
+      }
+      navigate('/', { replace: true })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to sign in right now.')
+    } finally {
+      setBusy(false)
     }
-    navigate('/', { replace: true })
   }
 
   return (
@@ -47,18 +52,20 @@ export default function Login() {
           </div>
         </div>
 
-        <h1 className="login-title">Administrator login</h1>
-        <p className="login-sub">Sign in to record and monitor rice farm expenses, cash advances and reports.</p>
+        <h1 className="login-title">Sign in to your farm account</h1>
+        <p className="login-sub">Each farmer has a separate account and private farm records.</p>
 
         <form onSubmit={handleSubmit} noValidate>
-          <Field label="Username">
+          <Field label="Email">
             <input
               className="input"
+              type="email"
               autoCapitalize="off"
               autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter username"
+              placeholder="Enter your email"
+              required
             />
           </Field>
           <Field label="Password" className="mt-3">
@@ -68,14 +75,15 @@ export default function Login() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
+              placeholder="Enter your password"
+              required
             />
           </Field>
 
-          {error && (
+          {(error || databaseError) && (
             <div className="login-error" role="alert">
               <span className="dot" />
-              {error}
+              {error ?? databaseError}
             </div>
           )}
 
@@ -84,26 +92,11 @@ export default function Login() {
           </Button>
         </form>
 
-        <div className="login-demo">
-          <div className="login-demo-head">
-            <IconLeaf width={14} height={14} />
-            Demo access
-          </div>
-          <div className="login-demo-row">
-            <span className="login-role">Farmer Administrator</span>
-            <code>admin</code>
-            <span aria-hidden>/</span>
-            <code>admin123</code>
-          </div>
-          <div className="login-demo-row">
-            <span className="login-role">Field Data Officer</span>
-            <code>renielagtas10@gmail.com</code>
-            <span aria-hidden>/</span>
-            <code>kurt123</code>
-          </div>
-        </div>
+        <p className="text-sm mt-4" style={{ textAlign: 'center' }}>
+          Don&rsquo;t have an account? <Link to="/register" style={{ color: 'var(--brand)', fontWeight: 700 }}>Create one</Link>
+        </p>
 
-        <p className="login-foot">Offline-first · data stays on this device</p>
+        <p className="login-foot">Farmer-only system · accounts and farm records are stored securely in the connected database.</p>
       </div>
     </div>
   )

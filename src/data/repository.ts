@@ -53,13 +53,12 @@ function enqueue(
 }
 
 export function createFarmer(
-  data: Omit<Farmer, 'id' | 'agentId' | 'sourceChannel' | 'createdAt' | 'updatedAt'>,
+  data: Omit<Farmer, 'id' | 'sourceChannel' | 'createdAt' | 'updatedAt'>,
 ): Farmer {
   const now = isoNow()
   const farmer: Farmer = {
     ...data,
     id: uid('farmer'),
-    agentId: 'agent-01',
     sourceChannel: 'cloud-api',
     createdAt: now,
     updatedAt: now,
@@ -96,21 +95,19 @@ export function deleteFarmer(id: string): void {
 
 export function createPlot(
   data: Omit<Plot, 'id'>,
-  opts?: { quiet?: boolean },
 ): Plot {
   const plot: Plot = { ...data, id: uid('plot') }
   setState((s) => ({ db: { ...s.db, plots: [plot, ...s.db.plots] } }))
-  if (!opts?.quiet) enqueue('plot', plot.id, 'create', plot)
+  enqueue('plot', plot.id, 'create', plot)
   return plot
 }
 
 export function createVisit(
-  data: Omit<Visit, 'id' | 'agentId' | 'offline' | 'createdAt'>,
+  data: Omit<Visit, 'id' | 'offline' | 'createdAt'>,
 ): Visit {
   const visit: Visit = {
     ...data,
     id: uid('visit'),
-    agentId: 'agent-01',
     offline: !getState().online,
     createdAt: isoNow(),
   }
@@ -127,7 +124,7 @@ export function createCashAdvance(
 ): CashAdvance {
   const cashAdvance: CashAdvance = {
     ...data,
-    id: uid('invest'),
+    id: uid('cash-advance'),
     status: data.status ?? 'active',
     repayments: [],
     farmerMessages: data.initialMessage?.trim()
@@ -200,6 +197,12 @@ export function sendCashAdvanceEmail(
 export function addRepayment(cashAdvanceId: string, data: Omit<Repayment, 'id' | 'cashAdvanceId'>): void {
   const inv = getState().db.cashAdvances.find((i) => i.id === cashAdvanceId)
   if (!inv) return
+  if (!Number.isFinite(data.amount) || data.amount <= 0) {
+    throw new RangeError('Repayment amount must be greater than zero.')
+  }
+  if (data.amount > Math.max(0, inv.principal - totalRepaid(inv))) {
+    throw new RangeError('Repayment cannot exceed the remaining cash advance balance.')
+  }
   const repayment: Repayment = { ...data, id: uid('repay'), cashAdvanceId }
   const paid = totalRepaid(inv) + repayment.amount
   const updated: CashAdvance = {

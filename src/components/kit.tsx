@@ -26,7 +26,7 @@ export const STATUS_TONE: Record<OutboxStatus, string> = {
 export const STATUS_LABEL: Record<OutboxStatus, string> = {
   pending: 'Pending',
   syncing: 'Syncing',
-  synced: 'Synced',
+  synced: 'Processed',
   failed: 'Failed',
 }
 
