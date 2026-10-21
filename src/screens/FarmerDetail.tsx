@@ -34,7 +34,6 @@ export default function FarmerDetail() {
   const [showPlot, setShowPlot] = useState(false)
   const [plot, setPlot] = useState({
     name: '',
-    crop: 'Palay (rice)',
     areaHa: '1.0',
     soilType: 'Sandy loam',
     season: 'Summer 2026',
@@ -91,8 +90,8 @@ export default function FarmerDetail() {
     }
     createPlot({
         farmerId: f.id,
-        name: plot.name.trim() || `${plot.crop} field`,
-        crop: plot.crop,
+        name: plot.name.trim() || 'Palay (rice) field',
+        crop: 'Palay (rice)',
         areaHa,
         soilType: plot.soilType,
         season: plot.season,
@@ -233,11 +232,6 @@ export default function FarmerDetail() {
           <div className="form-grid">
             <Field label="Plot name">
               <input className="input" value={plot.name} onChange={(e) => setPlot({ ...plot, name: e.target.value })} placeholder="e.g. Upper field" />
-            </Field>
-            <Field label="Crop">
-              <select className="select" value={plot.crop} onChange={(e) => setPlot({ ...plot, crop: e.target.value })}>
-                {['Palay (rice)', 'Corn', 'Onion', 'Garlic', 'Vegetables', 'Mango', 'Sweet potato'].map((c) => <option key={c}>{c}</option>)}
-              </select>
             </Field>
             <Field label="Area (ha)">
               <input className="input" type="number" min="0.1" step="0.1" value={plot.areaHa} onChange={(e) => setPlot({ ...plot, areaHa: e.target.value })} required />

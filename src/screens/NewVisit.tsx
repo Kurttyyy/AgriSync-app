@@ -5,8 +5,8 @@ import { createVisit } from '../data/repository'
 import { toast, Button, Field } from '../components/kit'
 import { IconChevronLeft } from '../components/icons'
 
-const PESTS = ['Fall armyworm', 'Aphids', 'Rodents', 'None']
-const INPUTS = ['Compound D', 'Urea', 'Pre-emergent herbicide', 'Compost', 'Pest spray']
+const PESTS = ['Fall armyworm', 'Aphids', 'Rodents', 'None', 'Other']
+const INPUTS = ['Compound D', 'Urea', 'Pre-emergent herbicide', 'Compost', 'Pest spray', 'Other']
 
 export default function NewVisit() {
   const { id } = useParams()
@@ -20,6 +20,8 @@ export default function NewVisit() {
     health: 'good',
     pests: ['None'] as string[],
     inputs: [] as string[],
+    customPest: '',
+    customInput: '',
     notes: '',
     followUpDate: '',
   })
@@ -47,14 +49,24 @@ export default function NewVisit() {
       toast('Add a purpose for the visit', 'alert')
       return
     }
+    if (form.pests.includes('Other') && !form.customPest.trim()) {
+      toast('Enter the custom pest observed.', 'alert')
+      return
+    }
+    if (form.inputs.includes('Other') && !form.customInput.trim()) {
+      toast('Enter the custom input used.', 'alert')
+      return
+    }
+    const pests = form.pests.map((pest) => pest === 'Other' ? form.customPest.trim() : pest)
+    const inputsUsed = form.inputs.map((input) => input === 'Other' ? form.customInput.trim() : input)
     createVisit({
       farmerId: f.id,
       date: new Date().toISOString(),
       purpose: form.purpose.trim(),
       cropStage: form.cropStage,
       health: form.health as 'good' | 'fair' | 'poor',
-      pests: form.pests.length ? form.pests : ['None'],
-      inputsUsed: form.inputs,
+      pests: pests.length ? pests : ['None'],
+      inputsUsed,
       notes: form.notes.trim() || 'No notes.',
       followUpDate: form.followUpDate ? new Date(form.followUpDate).toISOString() : undefined,
     })
@@ -109,6 +121,15 @@ export default function NewVisit() {
                 </button>
               ))}
             </div>
+            {form.pests.includes('Other') && (
+              <input
+                className="input mt-2"
+                value={form.customPest}
+                onChange={(e) => setForm({ ...form, customPest: e.target.value })}
+                placeholder="Enter pest name"
+                aria-label="Custom pest observed"
+              />
+            )}
           </Field>
           <Field label="Inputs used">
             <div className="pill-row">
@@ -118,6 +139,15 @@ export default function NewVisit() {
                 </button>
               ))}
             </div>
+            {form.inputs.includes('Other') && (
+              <input
+                className="input mt-2"
+                value={form.customInput}
+                onChange={(e) => setForm({ ...form, customInput: e.target.value })}
+                placeholder="Enter input name"
+                aria-label="Custom input used"
+              />
+            )}
           </Field>
           <Field label="Notes">
             <textarea className="textarea" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Soil moisture, pest pressure, next actions…" />
