@@ -13,6 +13,7 @@ import {
   IconHome,
   IconLogout,
   IconCashAdvance,
+  IconRefresh,
   IconSync,
 } from './icons'
 
@@ -119,6 +120,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="topbar-actions">
             <Chip online={online} />
+            <button
+              className="btn btn-ghost btn-sm app-refresh-btn"
+              type="button"
+              aria-label="Reload app"
+              title="Reload app"
+              onClick={() => window.location.reload()}
+            >
+              <IconRefresh width={16} height={16} />
+              <span>Refresh</span>
+            </button>
             <SyncButton
               pending={pending}
               syncing={syncing}
