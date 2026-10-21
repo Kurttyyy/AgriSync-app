@@ -54,10 +54,10 @@ export default function Login() {
           </div>
         </div>
 
-        <h1 className="login-title">Sign in to your farm account</h1>
-        <p className="login-sub">Each farmer has a separate account and private farm records.</p>
+        <h1 className="login-title">Welcome back</h1>
+        <p className="login-sub">Sign in to access your farmer account and farm records.</p>
 
-        <form onSubmit={handleSubmit} noValidate>
+        <form className="login-form" onSubmit={handleSubmit} noValidate>
           <Field label="Email">
             <input
               className="input"
@@ -70,7 +70,7 @@ export default function Login() {
               required
             />
           </Field>
-          <Field label="Password" className="mt-3">
+          <Field label="Password">
             <div className="password-input-wrap">
               <input
                 className="input"
@@ -100,20 +100,19 @@ export default function Login() {
             </div>
           )}
 
-          <Button type="submit" block className="mt-4" loading={busy}>
+          <Button type="submit" block loading={busy}>
             Sign in
           </Button>
         </form>
 
-        <p className="text-sm mt-4" style={{ textAlign: 'center' }}>
-          Don&rsquo;t have an account? <Link to="/register" style={{ color: 'var(--brand)', fontWeight: 700 }}>Create one</Link>
-        </p>
+        <div className="login-links">
+          <p className="login-register">
+            New to the app? <Link to="/register">Create an account</Link>
+          </p>
+          <Link className="login-qr-link" to="/qr">Show app access QR code</Link>
+        </div>
 
-        <p className="text-sm mt-4" style={{ textAlign: 'center' }}>
-          <Link to="/qr" style={{ color: 'var(--brand)', fontWeight: 700 }}>Show app access QR code</Link>
-        </p>
-
-        <p className="login-foot">Farmer-only system · accounts and farm records are stored securely in the connected database.</p>
+        <p className="login-foot">Your account and farm records are stored securely in the connected database.</p>
       </div>
     </div>
   )

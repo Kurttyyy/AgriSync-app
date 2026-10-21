@@ -12,7 +12,6 @@ export default function Register() {
   const [village, setVillage] = useState('')
   const [district, setDistrict] = useState('')
   const [farmSize, setFarmSize] = useState('')
-  const [crop, setCrop] = useState('Palay (rice)')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -52,7 +51,7 @@ export default function Register() {
         village: village.trim(),
         district: district.trim(),
         farmSizeHa: size,
-        primaryCrop: crop,
+        primaryCrop: 'Not specified',
         creditRisk: 'medium',
         joinedDate: new Date().toISOString(),
       }, password)
@@ -103,13 +102,6 @@ export default function Register() {
             </Field>
             <Field label="Farm size (hectares)">
               <input className="input" type="number" min="0.1" step="0.1" value={farmSize} onChange={(e) => setFarmSize(e.target.value)} required />
-            </Field>
-            <Field label="Main crop">
-              <select className="select" value={crop} onChange={(e) => setCrop(e.target.value)}>
-                {['Palay (rice)', 'Corn', 'Onion', 'Garlic', 'Vegetables', 'Mango', 'Sweet potato'].map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
             </Field>
             <Field label="Password (at least 8 characters)">
               <div className="password-input-wrap">

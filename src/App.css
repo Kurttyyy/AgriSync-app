@@ -1322,6 +1322,19 @@
   margin-bottom: 18px;
 }
 
+.login-form {
+  display: grid;
+  gap: 16px;
+}
+
+.login-form .field {
+  margin: 0;
+}
+
+.login-form .login-error {
+  margin-top: 0;
+}
+
 .login-error {
   display: flex;
   align-items: center;
@@ -1340,6 +1353,26 @@
   border-radius: 50%;
   background: var(--red);
   flex: none;
+}
+
+.login-links {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+}
+
+.login-register,
+.login-qr-link {
+  font-size: 13px;
+}
+
+.login-register a,
+.login-qr-link {
+  color: var(--brand);
+  font-weight: 700;
 }
 
 .qr-access-screen {
