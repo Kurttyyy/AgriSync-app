@@ -2,11 +2,13 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { login, useAppState } from '../data/store'
 import { Button, Field } from '../components/kit'
+import { IconEye, IconEyeOff } from '../components/icons'
 
 export default function Login() {
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const databaseError = useAppState((state) => state.databaseError)
@@ -69,15 +71,26 @@ export default function Login() {
             />
           </Field>
           <Field label="Password" className="mt-3">
-            <input
-              className="input"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              required
-            />
+            <div className="password-input-wrap">
+              <input
+                className="input"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                required
+              />
+              <button
+                className="password-toggle"
+                type="button"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((visible) => !visible)}
+              >
+                {showPassword ? <IconEyeOff aria-hidden="true" /> : <IconEye aria-hidden="true" />}
+              </button>
+            </div>
           </Field>
 
           {(error || databaseError) && (

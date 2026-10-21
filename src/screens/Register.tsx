@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { registerFarmerAccount, useAppState } from '../data/store'
 import { Button, Field } from '../components/kit'
+import { IconEye, IconEyeOff } from '../components/icons'
 
 export default function Register() {
   const navigate = useNavigate()
@@ -14,6 +15,8 @@ export default function Register() {
   const [crop, setCrop] = useState('Palay (rice)')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const databaseError = useAppState((state) => state.databaseError)
@@ -109,10 +112,32 @@ export default function Register() {
               </select>
             </Field>
             <Field label="Password (at least 8 characters)">
-              <input className="input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
+              <div className="password-input-wrap">
+                <input className="input" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
+                <button
+                  className="password-toggle"
+                  type="button"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                >
+                  {showPassword ? <IconEyeOff aria-hidden="true" /> : <IconEye aria-hidden="true" />}
+                </button>
+              </div>
             </Field>
             <Field label="Confirm password">
-              <input className="input" type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+              <div className="password-input-wrap">
+                <input className="input" type={showConfirmPassword ? 'text' : 'password'} autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+                <button
+                  className="password-toggle"
+                  type="button"
+                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showConfirmPassword}
+                  onClick={() => setShowConfirmPassword((visible) => !visible)}
+                >
+                  {showConfirmPassword ? <IconEyeOff aria-hidden="true" /> : <IconEye aria-hidden="true" />}
+                </button>
+              </div>
             </Field>
           </div>
 

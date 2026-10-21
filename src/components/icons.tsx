@@ -78,6 +78,22 @@ export const IconSearch = (p: P) => (
   </svg>
 )
 
+export const IconEye = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+)
+
+export const IconEyeOff = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m3 3 18 18" />
+    <path d="M10.6 5.2A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7a14.8 14.8 0 0 1-3.1 3.9" />
+    <path d="M6.2 6.2C3.5 8 2 12 2 12s3.6 7 10 7c1.1 0 2.1-.2 3-.5" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+  </svg>
+)
+
 export const IconCloudOff = (p: P) => (
   <svg {...base(p)}>
     <path d="M6.5 9a4.5 4.5 0 0 0-.4 9H17" />
