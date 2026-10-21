@@ -6,6 +6,7 @@ import InstallAppPrompt from './components/InstallAppPrompt'
 import { ConfirmHost, ToastHost } from './components/kit'
 import { initializeAuth, useAppState } from './data/store'
 import Login from './screens/Login'
+import QrAccess from './screens/QrAccess'
 import Register from './screens/Register'
 import Dashboard from './screens/Dashboard'
 import Farmers from './screens/Farmers'
@@ -59,6 +60,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/qr" element={<QrAccess />} />
         <Route path="/register" element={<Register />} />
         <Route path="*" element={<ProtectedApp />} />
       </Routes>

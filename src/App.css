@@ -1315,6 +1315,19 @@
   flex: none;
 }
 
+.qr-access-screen {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+.qr-access-screen svg {
+  width: min(80vw, 360px);
+  height: auto;
+  background: #fff;
+}
+
 .login-demo {
   margin-top: 22px;
   border-top: 1px dashed var(--line-strong);

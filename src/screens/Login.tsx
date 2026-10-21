@@ -96,6 +96,10 @@ export default function Login() {
           Don&rsquo;t have an account? <Link to="/register" style={{ color: 'var(--brand)', fontWeight: 700 }}>Create one</Link>
         </p>
 
+        <p className="text-sm mt-4" style={{ textAlign: 'center' }}>
+          <Link to="/qr" style={{ color: 'var(--brand)', fontWeight: 700 }}>Show app access QR code</Link>
+        </p>
+
         <p className="login-foot">Farmer-only system · accounts and farm records are stored securely in the connected database.</p>
       </div>
     </div>
