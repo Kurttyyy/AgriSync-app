@@ -81,9 +81,11 @@ const loadedUsers = load<unknown>(KEYS.users, seed.users)
 const users = (Array.isArray(loadedUsers) ? loadedUsers : seed.users)
   .filter((user): user is User => user?.role === 'farmer' && typeof user.farmerId === 'string')
 const savedAuth = load<AuthState>(KEYS.auth, { user: null, authenticated: false })
-const signedInUser = savedAuth.user
-  ? users.find((user) => user.id === savedAuth.user?.id && user.role === 'farmer')
-  : undefined
+const signedInUser = savedAuth.user?.id === localOwnerId && savedAuth.user.role === 'farmer'
+  ? savedAuth.user
+  : savedAuth.user
+    ? users.find((user) => user.id === savedAuth.user?.id && user.role === 'farmer')
+    : undefined
 type StoredCashAdvance = Omit<CashAdvance, 'kind'> & { kind: CashAdvance['kind'] | 'microloan' }
 const loadedDb = load<Partial<Omit<DB, 'cashAdvances'>> & {
   cashAdvances?: StoredCashAdvance[]
@@ -152,7 +154,7 @@ let state: AppState = {
   syncingPct: 0,
   lastSyncAt: meta?.lastSyncAt ?? null,
   seeded: true,
-  authReady: false,
+  authReady: Boolean(savedAuth.authenticated && signedInUser),
   databaseError: null,
 }
 if (migratedCashAdvances.length > 0 ||

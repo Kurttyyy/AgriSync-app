@@ -42,7 +42,11 @@ Vite prints the local development URL in the terminal.
 
 ## Install on a phone or computer
 
-Deploy the app to an HTTPS URL, then open that URL in a supported browser. Use the **Install app** prompt when offered, or select **Install app / Add to Home screen** from the browser menu. On iPhone or iPad, open the site in Safari, tap **Share**, then choose **Add to Home Screen**. Once installed, launch AgriSync from its new home-screen icon.
+Deploy the production build to an HTTPS URL, then open that URL in a supported browser. Configure `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the deployment provider before building. The repository includes Netlify and Vercel deployment configuration; the production output is `dist/`.
+
+Do not install the app from the Vite development address (`localhost:5173`). That address is served by `npm run dev`, so an installation from it stops opening when the development server is off. Install from the deployed HTTPS address instead; the installed app then opens without VS Code or a local server.
+
+Use the **Install app** prompt when offered, or select **Install app / Add to Home screen** from the browser menu. On iPhone or iPad, open the site in Safari, tap **Share**, then choose **Add to Home Screen**. Open the deployed site once while online so the service worker can cache the app shell. After that, AgriSync can reopen offline with its saved sign-in and local records; changes made offline remain on the device until a connection is available to sync them.
 
 ## Checks and production build
 
