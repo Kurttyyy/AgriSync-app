@@ -51,7 +51,7 @@ export default function Register() {
         village: village.trim(),
         district: district.trim(),
         farmSizeHa: size,
-        primaryCrop: 'Not specified',
+        primaryCrop: 'Palay (rice)',
         creditRisk: 'medium',
         joinedDate: new Date().toISOString(),
       }, password)

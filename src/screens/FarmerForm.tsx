@@ -28,7 +28,6 @@ export default function FarmerForm() {
     village: farmer?.village ?? '',
     district: farmer?.district ?? '',
     farmSizeHa: farmer?.farmSizeHa?.toString() ?? '',
-    primaryCrop: farmer?.primaryCrop ?? 'Palay (rice)',
   }))
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
@@ -56,7 +55,7 @@ export default function FarmerForm() {
       village: form.village.trim(),
       district: form.district.trim(),
       farmSizeHa: size,
-      primaryCrop: form.primaryCrop,
+      primaryCrop: 'Palay (rice)',
     }
     if (isNew) {
       const created = createFarmer({
@@ -119,13 +118,6 @@ export default function FarmerForm() {
             </Field>
             <Field label="Farm size (hectares)">
               <input className="input" type="number" min="0.1" step="0.1" value={form.farmSizeHa} onChange={(event) => set('farmSizeHa', event.target.value)} required />
-            </Field>
-            <Field label="Main crop">
-              <select className="select" value={form.primaryCrop} onChange={(event) => set('primaryCrop', event.target.value)}>
-                {['Palay (rice)', 'Corn', 'Onion', 'Garlic', 'Vegetables', 'Mango', 'Sweet potato'].map((crop) => (
-                  <option key={crop}>{crop}</option>
-                ))}
-              </select>
             </Field>
           </div>
         </section>
