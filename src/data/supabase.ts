@@ -20,6 +20,37 @@ export function emptyDatabase(): DB {
   return { farmers: [], plots: [], visits: [], cashAdvances: [], expenses: [], harvests: [], budgets: [] }
 }
 
+export interface AuthenticatedFarmerProfile {
+  farmerId: number | null
+  name: string | null
+  email: string | null
+}
+
+export async function loadAuthenticatedFarmerProfile(): Promise<AuthenticatedFarmerProfile | null> {
+  const client = requireSupabase()
+  const { data: authData, error: authError } = await client.auth.getUser()
+  if (authError) throw authError
+  if (!authData.user) return null
+
+  const { data, error } = await client
+    .from('farmer_data')
+    .select('farmer_id')
+    .eq('user_id', authData.user.id)
+    .maybeSingle()
+  if (error) throw error
+
+  const farmerId = typeof data?.farmer_id === 'number' && Number.isSafeInteger(data.farmer_id)
+    ? data.farmer_id
+    : null
+  const name = authData.user.user_metadata?.name
+
+  return {
+    farmerId,
+    name: typeof name === 'string' && name.trim() ? name : null,
+    email: authData.user.email ?? null,
+  }
+}
+
 export async function loadFarmerData(userId: string): Promise<DB | null> {
   const { data, error } = await requireSupabase()
     .from('farmer_data')

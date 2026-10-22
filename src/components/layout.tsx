@@ -1,9 +1,6 @@
 import { useEffect, type ReactNode, type SVGProps, type ReactElement } from 'react'
 import { NavLink, Link } from 'react-router-dom'
-import { logout, useAppState } from '../data/store'
-import { syncDatabaseNow } from '../data/store'
-import { runSync } from '../data/sync'
-import { dbForUser, outboxForUser } from '../data/selectors'
+import { logout, syncDatabaseNow, useAppState } from '../data/store'
 import { toast, Avatar } from './kit'
 import {
   IconChart,
@@ -13,8 +10,8 @@ import {
   IconHome,
   IconLogout,
   IconCashAdvance,
-  IconRefresh,
   IconSync,
+  IconSettings,
   IconWallet,
 } from './icons'
 
@@ -75,19 +72,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (databaseError) toast(databaseError, 'alert')
   }, [databaseError])
-  const syncing = useAppState((s) => s.syncing)
   const user = useAppState((s) => s.auth.user)
-  const allDb = useAppState((s) => s.db)
-  const allOutbox = useAppState((s) => s.outbox)
-  const userDb = dbForUser(allDb, user)
-  const outbox = outboxForUser(allOutbox, userDb)
-  const allPending = outbox.filter((item) => item.status === 'pending' || item.status === 'failed').length
-  const pending = allPending
   const navItems = NAV_ITEMS
   const displayName = user?.name ?? 'Farmer'
   const initials = user?.initials ?? initialsOf(displayName)
 
-  const fatal = pending >= 2 && syncing
   const databaseSaveStatus = useAppState((s) => s.databaseSaveStatus)
 
   return (
@@ -119,22 +108,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="topbar-actions">
             <Chip online={online} />
-            <button
-              className="btn btn-ghost btn-sm app-refresh-btn"
-              type="button"
-              aria-label="Reload app"
-              title="Reload app"
-              onClick={() => window.location.reload()}
+            <NavLink
+              to="/settings"
+              className={({ isActive }) => `settings-nav-link${isActive ? ' active' : ''}`}
+              aria-label="Settings"
+              title="Settings"
             >
-              <IconRefresh width={16} height={16} />
-              <span>Refresh</span>
-            </button>
-            <SyncButton
-              pending={pending}
-              syncing={syncing}
-              online={online}
-              itemIds={outbox.map((item) => item.id)}
-            />
+              <IconSettings width={18} height={18} />
+            </NavLink>
             <div className="topbar-user" title={displayName}>
               <span className="topbar-user-name">{displayName}</span>
               <span className="topbar-user-role">Farmer</span>
@@ -181,27 +162,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </button>
       </nav>
 
-      {pending > 0 && !fatal && (
-        <button
-          className="fab"
-          aria-label="Run simulated message processing"
-          disabled={syncing}
-          onClick={() => {
-            if (syncing) return
-            if (!online) {
-              toast('Connect to the network to process queued records', 'alert')
-              return
-            }
-            void runSync('manual', new Set(outbox.map((item) => item.id))).then((n) => toast(n > 0 ? `${n} records processed` : 'Nothing to process'))
-          }}
-        >
-          {syncing ? (
-            <IconSync className="spin" width={26} height={26} />
-          ) : (
-            <IconSync width={26} height={26} />
-          )}
-        </button>
-      )}
     </div>
   )
 }
@@ -220,29 +180,6 @@ export function Chip({ online }: { online: boolean }) {
       <span className="dot" />
       {online ? 'Online' : 'Offline'}
     </span>
-  )
-}
-
-function SyncButton({ pending, syncing, online, itemIds }: {
-  pending: number
-  syncing: boolean
-  online: boolean
-  itemIds: string[]
-}) {
-  const disabled = syncing || !online
-  return (
-    <button
-      className={`btn btn-sm ${syncing ? 'btn-soft' : pending > 0 && online ? 'btn-primary' : 'btn-ghost'}`}
-      onClick={() => {
-        if (disabled) return
-        void runSync('manual', new Set(itemIds)).then((n) => toast(n > 0 ? `${n} records processed` : 'All up to date'))
-      }}
-      disabled={disabled}
-      title={online ? 'Run simulated message-channel processing' : 'Connect to run the message simulator'}
-    >
-      {syncing ? <IconSync className="spin" width={16} height={16} /> : <IconSync width={16} height={16} />}
-      <span>{syncing ? 'Processing…' : !online ? 'Offline' : pending > 0 ? `Simulate ${pending}` : 'Simulator'}</span>
-    </button>
   )
 }
 

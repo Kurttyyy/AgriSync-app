@@ -20,6 +20,7 @@ import SyncCenter from './screens/SyncCenter'
 import FarmFinance from './screens/FarmFinance'
 import ForgotPassword from './screens/ForgotPassword'
 import ResetPassword from './screens/ResetPassword'
+import Settings from './screens/Settings'
 import type { AuthUser } from './domain/types'
 
 function ProtectedApp() {
@@ -42,6 +43,7 @@ function ProtectedApp() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/finance" element={<FarmFinance />} />
         <Route path="/sync" element={<SyncCenter />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <ToastHost />

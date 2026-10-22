@@ -43,22 +43,22 @@ export default function Dashboard() {
     }))
 
   return (
-    <>
-      <div className="page-header">
+    <div className="dashboard-page">
+      <header className="page-header dashboard-header">
         <div>
           <div className="crumb">Dashboard</div>
           <h1 className="mt-2">{greeting()}, {firstName}</h1>
-          <p className="text-sm mt-2">Here is a quick look at your farm records.</p>
+          <p className="text-sm mt-2">A clear overview of your farm records and recent activity.</p>
         </div>
         <Link to="/farmers" className="btn btn-primary btn-sm">
           View farm profiles
         </Link>
-      </div>
+      </header>
 
-      <section className="card flex between wrap gap-md" aria-live="polite">
-        <div>
-          <div className="card-title">{online ? 'You are online' : 'You are offline'}</div>
-          <p className="text-sm mt-2">
+      <section className="card dashboard-status" aria-live="polite" aria-label="Account connection status">
+        <div className="dashboard-status-copy">
+          <div className="card-title">Account sync</div>
+          <p className="text-sm">
             {online
               ? databaseSaveStatus === 'saving'
                 ? 'Saving your account records to Supabase…'
@@ -70,14 +70,14 @@ export default function Dashboard() {
               : 'Changes are saved on this device and will sync when you reconnect.'}
           </p>
         </div>
-        <Chip tone={online ? 'tone-green' : 'tone-amber'} dot>
-          {online ? 'Connected' : 'Offline'}
+        <Chip tone={!online ? 'tone-amber' : databaseSaveStatus === 'error' ? 'tone-red' : 'tone-green'} dot>
+          {!online ? 'Offline' : databaseSaveStatus === 'error' ? 'Save failed' : 'Connected'}
         </Chip>
         {syncing && <span className="chip tone-blue"><IconSync className="spin" width={14} height={14} /> Processing…</span>}
       </section>
 
       {metrics.overdueFollowUps > 0 && (
-        <section className="card mt-4" style={{ borderColor: 'rgba(191,75,51,.35)', background: 'var(--red-soft)' }}>
+        <section className="card dashboard-alert" aria-label="Overdue follow-ups">
           <div className="flex between wrap gap-md">
             <div className="flex gap-md">
               <IconBell width={20} height={20} />
@@ -95,78 +95,103 @@ export default function Dashboard() {
         </section>
       )}
 
-      <div className="seg-title">Farm summary</div>
-      <div className="stat-grid">
-        <Stat
-          label="Farm profiles"
-          value={metrics.farmers}
-          note={`${fmtNum(totalFarmSize)} hectares total`}
-          icon={<IconFarmers width={14} height={14} />}
-        />
-        <Stat label="Visits this week" value={metrics.visitsThisWeek} note="Farm visits recorded" icon={<IconCheck width={14} height={14} />} />
-        <Stat
-          label="Outstanding"
-          value={fmtMoney(metrics.outstanding)}
-          note={`${metrics.activeCashAdvances} active advances`}
-          icon={<IconCashAdvance width={14} height={14} />}
-        />
-      </div>
-
-      <div className="seg-title">Quick actions</div>
-      <div className="quick-grid">
-        <Link to="/farmers" className="card quick-action">
-          <span className="avatar"><IconFarmers width={19} height={19} /></span>
-          <span className="grow">
-            <span className="row-title">Farm profiles</span>
-            <span className="row-sub d-block">{db.farmers.length} profile{db.farmers.length === 1 ? '' : 's'} in your account</span>
-          </span>
-          <IconArrowRight width={17} height={17} />
-        </Link>
-        <Link to="/cash-advances" className="card quick-action">
-          <span className="avatar quick-action-gold"><IconCashAdvance width={19} height={19} /></span>
-          <span className="grow">
-            <span className="row-title">Cash advances</span>
-            <span className="row-sub d-block">Review balances and repayments</span>
-          </span>
-          <IconArrowRight width={17} height={17} />
-        </Link>
-        <Link to="/expenses" className="card quick-action">
-          <span className="avatar"><IconExpense width={19} height={19} /></span>
-          <span className="grow">
-            <span className="row-title">Farm expenses</span>
-            <span className="row-sub d-block">Record and review farm costs</span>
-          </span>
-          <IconArrowRight width={17} height={17} />
-        </Link>
-        <Link to="/finance" className="card quick-action">
-          <span className="avatar quick-action-gold"><IconExpense width={19} height={19} /></span>
-          <span className="grow">
-            <span className="row-title">Rice farm finance</span>
-            <span className="row-sub d-block">Track harvest income, budgets, and profit</span>
-          </span>
-          <IconArrowRight width={17} height={17} />
-        </Link>
-      </div>
-
-      <div className="seg-title">Recent visits</div>
-      <section className="card">
-        {recentVisits.length === 0 ? (
-          <p className="text-sm text-mute">No visits yet. Visit a farmer to add the first one.</p>
-        ) : (
-          <div className="feed">
-            {recentVisits.map((visit) => (
-              <div className="feed-item" key={visit.id}>
-                <span className="feed-icon"><IconCheck width={17} height={17} /></span>
-                <div className="feed-body grow">
-                  <div className="feed-title">{visit.farmerName}</div>
-                  <div className="feed-sub">{visit.purpose}</div>
-                </div>
-                <span className="feed-time">{fmtRelative(visit.date)}</span>
-              </div>
-            ))}
+      <section className="dashboard-section" aria-labelledby="dashboard-summary-title">
+        <div className="dashboard-section-head">
+          <div>
+            <h2 className="seg-title" id="dashboard-summary-title">Farm summary</h2>
+            <p className="dashboard-section-note">Your key farm activity at a glance.</p>
           </div>
-        )}
+        </div>
+        <div className="stat-grid dashboard-stat-grid">
+          <Stat
+            label="Farm profiles"
+            value={metrics.farmers}
+            note={`${fmtNum(totalFarmSize)} hectares total`}
+            icon={<IconFarmers width={14} height={14} />}
+          />
+          <Stat label="Visits this week" value={metrics.visitsThisWeek} note="Farm visits recorded" icon={<IconCheck width={14} height={14} />} />
+          <Stat
+            label="Outstanding"
+            value={fmtMoney(metrics.outstanding)}
+            note={`${metrics.activeCashAdvances} active advances`}
+            icon={<IconCashAdvance width={14} height={14} />}
+          />
+        </div>
       </section>
-    </>
+
+      <section className="dashboard-section" aria-labelledby="dashboard-actions-title">
+        <div className="dashboard-section-head">
+          <div>
+            <h2 className="seg-title" id="dashboard-actions-title">Quick actions</h2>
+            <p className="dashboard-section-note">Go straight to the records you manage most.</p>
+          </div>
+        </div>
+        <div className="quick-grid dashboard-quick-grid">
+          <Link to="/farmers" className="card quick-action">
+            <span className="avatar"><IconFarmers width={19} height={19} /></span>
+            <span className="grow">
+              <span className="row-title">Farm profiles</span>
+              <span className="row-sub d-block">{db.farmers.length} profile{db.farmers.length === 1 ? '' : 's'} in your account</span>
+            </span>
+            <IconArrowRight width={17} height={17} />
+          </Link>
+          <Link to="/cash-advances" className="card quick-action">
+            <span className="avatar quick-action-gold"><IconCashAdvance width={19} height={19} /></span>
+            <span className="grow">
+              <span className="row-title">Cash advances</span>
+              <span className="row-sub d-block">Review balances and repayments</span>
+            </span>
+            <IconArrowRight width={17} height={17} />
+          </Link>
+          <Link to="/expenses" className="card quick-action">
+            <span className="avatar"><IconExpense width={19} height={19} /></span>
+            <span className="grow">
+              <span className="row-title">Farm expenses</span>
+              <span className="row-sub d-block">Record and review farm costs</span>
+            </span>
+            <IconArrowRight width={17} height={17} />
+          </Link>
+          <Link to="/finance" className="card quick-action">
+            <span className="avatar quick-action-gold"><IconExpense width={19} height={19} /></span>
+            <span className="grow">
+              <span className="row-title">Rice farm finance</span>
+              <span className="row-sub d-block">Track harvest income, budgets, and profit</span>
+            </span>
+            <IconArrowRight width={17} height={17} />
+          </Link>
+        </div>
+      </section>
+
+      <section className="dashboard-section" aria-labelledby="dashboard-visits-title">
+        <div className="dashboard-section-head">
+          <div>
+            <h2 className="seg-title" id="dashboard-visits-title">Recent visits</h2>
+            <p className="dashboard-section-note">The latest field visits in your records.</p>
+          </div>
+          <Link to="/farmers" className="btn btn-ghost btn-sm">View farm profiles</Link>
+        </div>
+        <section className="card dashboard-visits">
+          {recentVisits.length === 0 ? (
+            <div className="dashboard-empty">
+              <p className="text-sm text-mute">No visits recorded yet.</p>
+              <Link to="/farmers" className="btn btn-primary btn-sm">Open farm profiles</Link>
+            </div>
+          ) : (
+            <div className="feed">
+              {recentVisits.map((visit) => (
+                <div className="feed-item" key={visit.id}>
+                  <span className="feed-icon"><IconCheck width={17} height={17} /></span>
+                  <div className="feed-body grow">
+                    <div className="feed-title">{visit.farmerName}</div>
+                    <div className="feed-sub">{visit.purpose}</div>
+                  </div>
+                  <span className="feed-time">{fmtRelative(visit.date)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+    </div>
   )
 }
