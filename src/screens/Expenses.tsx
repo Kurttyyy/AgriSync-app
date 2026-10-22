@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAppState } from '../data/store'
 import { createExpense, deleteExpense, updateExpense } from '../data/repository'
-import { defaultRiceSeason } from '../data/util'
+import { defaultRiceSeason, riceSeasonForFarmer } from '../data/util'
 import { dbForUser } from '../data/selectors'
 import { fmtDate, fmtMoney } from '../data/format'
 import { Button, Chip, confirmDialog, Field, Seg, toast } from '../components/kit'
@@ -254,7 +254,11 @@ function ExpenseForm({
     <form onSubmit={submit}>
       <div className="expense-form-grid">
         <Field label="Farmer profile">
-          <select className="select" value={farmerId} onChange={(e) => setFarmerId(e.target.value)} required>
+          <select className="select" value={farmerId} onChange={(e) => {
+            const nextFarmer = db.farmers.find((farmer) => farmer.id === e.target.value)
+            setFarmerId(e.target.value)
+            setSeason(riceSeasonForFarmer(nextFarmer, db.plots))
+          }} required>
             <option value="">Choose a profile</option>
             {farmers.map((f) => (
               <option key={f.id} value={f.id}>{f.name} — {f.village}</option>

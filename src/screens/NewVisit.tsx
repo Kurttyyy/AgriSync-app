@@ -4,6 +4,7 @@ import { useAppState } from '../data/store'
 import { createVisit } from '../data/repository'
 import { toast, Button, Field } from '../components/kit'
 import { IconChevronLeft } from '../components/icons'
+import { riceSeasonForFarmer } from '../data/util'
 
 const PESTS = ['Fall armyworm', 'Aphids', 'Rodents', 'None', 'Other']
 const INPUTS = ['Compound D', 'Urea', 'Pre-emergent herbicide', 'Compost', 'Pest spray', 'Other']
@@ -12,6 +13,7 @@ export default function NewVisit() {
   const { id } = useParams()
   const nav = useNavigate()
   const farmer = useAppState((s) => s.db.farmers.find((f) => f.id === id))
+  const plots = useAppState((s) => s.db.plots)
   const online = useAppState((s) => s.online)
 
   const [form, setForm] = useState({
@@ -62,6 +64,7 @@ export default function NewVisit() {
     createVisit({
       farmerId: f.id,
       date: new Date().toISOString(),
+      season: riceSeasonForFarmer(f, plots),
       purpose: form.purpose.trim(),
       cropStage: form.cropStage,
       health: form.health as 'good' | 'fair' | 'poor',
@@ -85,7 +88,7 @@ export default function NewVisit() {
             <IconChevronLeft />
           </Link>
           <div>
-            <div className="crumb">Field assessment · {f.name}</div>
+            <div className="crumb">Field assessment · {f.name} · {riceSeasonForFarmer(f, plots)}</div>
             <h1 className="mt-2" style={{ fontSize: 21 }}>Log visit</h1>
           </div>
         </div>

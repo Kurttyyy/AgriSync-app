@@ -11,6 +11,7 @@ AgriSync is a farmer-facing rice farm record and expense monitoring application 
 - Cash-advance records with repayment tracking and due dates, including an “After harvest” option. Cash advances do not use an interest rate.
 - Rice harvest tracking by date, season, harvested kilograms, and sale price per kilogram.
 - Per-farmer, per-season expense budgets with remaining/over-budget and profit/loss summaries. Net profit is harvest income minus recorded expenses; cash advances are not counted as income.
+- Rice-season rollover per farmer: preserve completed-season history, start a distinct new season, and reset existing plot planting dates, yield estimates, and health without deleting plots.
 - Search and filters for reviewing farm records.
 - Expense add, edit, and delete, with season assignment.
 - Excel-compatible CSV finance reports and print-to-PDF reports.

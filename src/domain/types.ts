@@ -40,6 +40,7 @@ export interface Farmer {
   district: string
   farmSizeHa: number
   primaryCrop: string
+  activeSeason?: string
   creditRisk: Risk
   joinedDate: string
   notes?: string
@@ -65,6 +66,7 @@ export interface Visit {
   id: ID
   farmerId: ID
   date: string
+  season?: string
   purpose: string
   cropStage: string
   health: Health

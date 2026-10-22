@@ -5,6 +5,7 @@ import { createFarmer, updateFarmer } from '../data/repository'
 import { linkFarmerProfile } from '../data/store'
 import { toast, Button, Field } from '../components/kit'
 import { IconChevronLeft } from '../components/icons'
+import { defaultRiceSeason, riceSeasonForFarmer } from '../data/util'
 
 const PH_PREFIX = '+63 '
 
@@ -19,7 +20,8 @@ function formatLocal(digits: string): string {
 export default function FarmerForm() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const farmer = useAppState((state) => state.db.farmers.find((item) => item.id === id))
+  const db = useAppState((state) => state.db)
+  const farmer = db.farmers.find((item) => item.id === id)
   const isNew = !id
   const [form, setForm] = useState(() => ({
     name: farmer?.name ?? '',
@@ -56,6 +58,7 @@ export default function FarmerForm() {
       district: form.district.trim(),
       farmSizeHa: size,
       primaryCrop: 'Palay (rice)',
+      activeSeason: farmer ? riceSeasonForFarmer(farmer, db.plots) : defaultRiceSeason(),
     }
     if (isNew) {
       const created = createFarmer({

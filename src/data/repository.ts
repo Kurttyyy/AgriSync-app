@@ -80,6 +80,34 @@ export function updateFarmer(id: string, patch: Partial<Omit<Farmer, 'id' | 'cre
   enqueue('farmer', id, 'update', updated)
 }
 
+export function startNewRiceSeason(farmerId: string, season: string): void {
+  const name = season.trim()
+  if (!name) throw new Error('Enter a name for the new rice season.')
+  const farmer = getState().db.farmers.find((item) => item.id === farmerId)
+  if (!farmer) throw new Error('The farmer profile could not be found.')
+  const alreadyUsed = [
+    farmer.activeSeason ?? '',
+    ...getState().db.plots.filter((item) => item.farmerId === farmerId).map((item) => item.season),
+    ...getState().db.visits.filter((item) => item.farmerId === farmerId).map((item) => item.season ?? ''),
+    ...getState().db.expenses.filter((item) => item.farmerId === farmerId).map((item) => item.season),
+    ...getState().db.harvests.filter((item) => item.farmerId === farmerId).map((item) => item.season),
+    ...getState().db.budgets.filter((item) => item.farmerId === farmerId).map((item) => item.season),
+  ].some((used) => used.trim().toLowerCase() === name.toLowerCase())
+  if (alreadyUsed) throw new Error('That season already has finance records. Choose a new season name to keep history separate.')
+
+  const plantedDate = isoNow()
+  const db = getState().db
+  setState({
+    db: {
+      ...db,
+      farmers: db.farmers.map((item) => item.id === farmerId ? { ...item, activeSeason: name, updatedAt: plantedDate } : item),
+      plots: db.plots.map((plot) => plot.farmerId === farmerId
+        ? { ...plot, season: name, plantedDate, expectedYieldT: 0, health: 'good' }
+        : plot),
+    },
+  })
+}
+
 export function deleteFarmer(id: string): void {
   const farmer = getState().db.farmers.find((f) => f.id === id)
   if (!farmer) return

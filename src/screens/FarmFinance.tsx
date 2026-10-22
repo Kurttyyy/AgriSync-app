@@ -3,7 +3,7 @@ import { useAppState } from '../data/store'
 import { createHarvest, setSeasonBudget } from '../data/repository'
 import { dbForUser } from '../data/selectors'
 import { fmtDate, fmtFinanceMoney, fmtNum } from '../data/format'
-import { defaultRiceSeason } from '../data/util'
+import { riceSeasonForFarmer } from '../data/util'
 import { Button, Field, toast } from '../components/kit'
 import type { DB } from '../domain/types'
 
@@ -13,11 +13,11 @@ export default function FarmFinance() {
   const db = dbForUser(allDb, user)
   const [farmerId, setFarmerId] = useState(db.farmers[0]?.id ?? '')
   const [harvestDate, setHarvestDate] = useState(todayInput())
-  const [harvestSeason, setHarvestSeason] = useState(defaultRiceSeason())
+  const [harvestSeason, setHarvestSeason] = useState(riceSeasonForFarmer(db.farmers[0], db.plots))
   const [quantityKg, setQuantityKg] = useState('')
   const [pricePerKg, setPricePerKg] = useState('')
   const [budgetFarmerId, setBudgetFarmerId] = useState(db.farmers[0]?.id ?? '')
-  const [budgetSeason, setBudgetSeason] = useState(defaultRiceSeason())
+  const [budgetSeason, setBudgetSeason] = useState(riceSeasonForFarmer(db.farmers[0], db.plots))
   const [budgetAmount, setBudgetAmount] = useState('')
 
   const seasonRows = useMemo(() => buildSeasonRows(db), [db])
@@ -94,8 +94,12 @@ export default function FarmFinance() {
             <h2 className="card-title mb-3">Record rice harvest</h2>
             <form onSubmit={saveHarvest}>
               <Field label="Farmer profile">
-                <select className="select" value={farmerId} onChange={(event) => setFarmerId(event.target.value)} required>
-                  {db.farmers.map((farmer) => <option key={farmer.id} value={farmer.id}>{farmer.name}</option>)}
+                <select className="select" value={farmerId} onChange={(event) => {
+                  setFarmerId(event.target.value)
+                  const selected = db.farmers.find((farmer) => farmer.id === event.target.value)
+                  setHarvestSeason(riceSeasonForFarmer(selected, db.plots))
+                }} required>
+                {db.farmers.map((farmer) => <option key={farmer.id} value={farmer.id}>{farmer.name}</option>)}
                 </select>
               </Field>
               <div className="form-grid">
@@ -122,7 +126,11 @@ export default function FarmFinance() {
             <h2 className="card-title mb-3">Set season budget</h2>
             <form onSubmit={saveBudget}>
               <Field label="Farmer profile">
-                <select className="select" value={budgetFarmerId} onChange={(event) => setBudgetFarmerId(event.target.value)} required>
+                <select className="select" value={budgetFarmerId} onChange={(event) => {
+                  setBudgetFarmerId(event.target.value)
+                  const selected = db.farmers.find((farmer) => farmer.id === event.target.value)
+                  setBudgetSeason(riceSeasonForFarmer(selected, db.plots))
+                }} required>
                   {db.farmers.map((farmer) => <option key={farmer.id} value={farmer.id}>{farmer.name}</option>)}
                 </select>
               </Field>

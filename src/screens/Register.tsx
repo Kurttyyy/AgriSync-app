@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { registerFarmerAccount, useAppState } from '../data/store'
 import { Button, Field } from '../components/kit'
 import { IconEye, IconEyeOff } from '../components/icons'
+import { defaultRiceSeason } from '../data/util'
 
 export default function Register() {
   const navigate = useNavigate()
@@ -53,6 +54,7 @@ export default function Register() {
         district: district.trim(),
         farmSizeHa: size,
         primaryCrop: 'Palay (rice)',
+        activeSeason: defaultRiceSeason(),
         creditRisk: 'medium',
         joinedDate: new Date().toISOString(),
       }, password)

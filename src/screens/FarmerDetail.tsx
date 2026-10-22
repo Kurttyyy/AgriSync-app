@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAppState } from '../data/store'
-import { createPlot } from '../data/repository'
+import { createPlot, startNewRiceSeason } from '../data/repository'
 import { createExpense } from '../data/repository'
 import { totalRepaid } from '../data/repository'
 import { cashAdvanceStatus, dbForUser } from '../data/selectors'
 import { fmtCashAdvanceDueDate, fmtDate, fmtMoney, fmtRelative, fmtShortDate } from '../data/format'
-import { Avatar, Chip, HEALTH_TONE, Initials, Meta, toast, Button, Field, Seg } from '../components/kit'
+import { Avatar, Chip, confirmDialog, HEALTH_TONE, Initials, Meta, toast, Button, Field, Seg } from '../components/kit'
 import {
   IconBell,
   IconChevronLeft,
@@ -22,7 +22,7 @@ import {
 } from '../components/icons'
 import type { ExpenseCategory } from '../domain/types'
 import { CATEGORIES, categoryLabel, categoryTone } from './Expenses'
-import { defaultRiceSeason } from '../data/util'
+import { defaultRiceSeason, nextRiceSeason, riceSeasonForFarmer } from '../data/util'
 
 export default function FarmerDetail() {
   const { id } = useParams()
@@ -37,12 +37,14 @@ export default function FarmerDetail() {
     name: '',
     areaHa: '1.0',
     soilType: 'Sandy loam',
-    season: 'Summer 2026',
+    season: farmer?.activeSeason ?? defaultRiceSeason(),
     plantedDate: new Date().toISOString().slice(0, 10),
     expectedYieldT: '2.0',
     health: 'good',
   })
   const [showExpense, setShowExpense] = useState(false)
+  const [showSeasonForm, setShowSeasonForm] = useState(false)
+  const [newSeason, setNewSeason] = useState('')
   const [expense, setExpense] = useState({
     date: new Date().toISOString().slice(0, 10),
     category: 'seeds' as ExpenseCategory,
@@ -61,8 +63,8 @@ export default function FarmerDetail() {
     )
   }
   const f = farmer
-
   const plots = db.plots.filter((p) => p.farmerId === f.id)
+  const activeSeason = riceSeasonForFarmer(f, plots)
   const visits = db.visits
     .filter((v) => v.farmerId === f.id)
     .sort((a, b) => b.date.localeCompare(a.date))
@@ -118,7 +120,7 @@ export default function FarmerDetail() {
     createExpense({
       farmerId: f.id,
       date: new Date(expense.date).toISOString(),
-      season: defaultRiceSeason(new Date(expense.date)),
+      season: activeSeason,
       category: expense.customCategoryMode ? expense.customCategory.trim() : expense.category,
       amount: Math.round(amt),
       description: expense.description.trim() || undefined,
@@ -135,6 +137,28 @@ export default function FarmerDetail() {
     })
   }
 
+  function beginNextSeason(event: FormEvent) {
+    event.preventDefault()
+    const seasonName = newSeason.trim()
+    if (!seasonName) {
+      toast('Enter a name for the new rice season.', 'alert')
+      return
+    }
+    confirmDialog(
+      'Start a new rice season?',
+      `This will keep all completed-season expenses, harvests, and visits. It will reset ${plots.length} plot planting plan(s) for "${seasonName}" and keep the farmer and plots.`,
+      () => {
+        try {
+          startNewRiceSeason(f.id, seasonName)
+          setShowSeasonForm(false)
+          toast(online ? `Started ${seasonName}; plot plans are syncing.` : `Started ${seasonName}; changes will sync when online.`)
+        } catch (error) {
+          toast(error instanceof Error ? error.message : 'Unable to start the new rice season.', 'alert')
+        }
+      },
+    )
+  }
+
   return (
     <>
       <div className="page-header">
@@ -147,9 +171,36 @@ export default function FarmerDetail() {
             <h1 className="mt-2" style={{ fontSize: 21 }}>{f.name}</h1>
           </div>
         </div>
-        <div className="flex gap-md">
+        <div className="flex gap-sm wrap">
+          <button
+            className="btn btn-soft btn-sm"
+            onClick={() => {
+              setNewSeason(nextRiceSeason(activeSeason))
+              setShowSeasonForm((visible) => !visible)
+            }}
+          >
+            Start new rice season
+          </button>
           <Link to={`/farmers/${f.id}/edit`} className="btn btn-ghost btn-sm">Edit profile</Link>
         </div>
+      </div>
+
+      <div className="card mb-4">
+        <div className="card-row">
+          <div>
+            <span className="card-title">Current rice season</span>
+            <p className="text-sm text-mute mt-2">{activeSeason} · new expenses and visits will use this season.</p>
+          </div>
+        </div>
+        {showSeasonForm && (
+          <form className="flex gap-md wrap mt-3" onSubmit={beginNextSeason}>
+            <Field label="New season name" className="grow">
+              <input className="input" value={newSeason} onChange={(event) => setNewSeason(event.target.value)} maxLength={60} required />
+            </Field>
+            <Button type="submit">Start season</Button>
+            <button type="button" className="btn btn-ghost" onClick={() => setShowSeasonForm(false)}>Cancel</button>
+          </form>
+        )}
       </div>
 
       <section className="card">
@@ -244,9 +295,7 @@ export default function FarmerDetail() {
               </select>
             </Field>
             <Field label="Season">
-              <select className="select" value={plot.season} onChange={(e) => setPlot({ ...plot, season: e.target.value })}>
-                {['Summer 2026', 'Winter 2026'].map((s) => <option key={s}>{s}</option>)}
-              </select>
+                <input className="input" value={plot.season} onChange={(e) => setPlot({ ...plot, season: e.target.value })} required maxLength={60} />
             </Field>
             <Field label="Planted">
               <input className="input" type="date" value={plot.plantedDate} onChange={(e) => setPlot({ ...plot, plantedDate: e.target.value })} required />
