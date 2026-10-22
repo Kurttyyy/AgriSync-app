@@ -1,5 +1,10 @@
+import { useState } from 'react'
 import { useAppState } from '../data/store'
 import { dbForUser } from '../data/selectors'
+import { totalRepaid } from '../data/repository'
+import { fmtFinanceMoney } from '../data/format'
+import { riceSeasonsForDb } from '../data/util'
+import { Stat } from '../components/kit'
 import {
   healthCounts,
   cashAdvanceMix,
@@ -17,13 +22,41 @@ export default function Analytics() {
   const db = dbForUser(allDb, user)
   const databaseSavedAt = useAppState((s) => s.databaseSavedAt)
   const databaseSaveStatus = useAppState((s) => s.databaseSaveStatus)
+  const [seasonFilter, setSeasonFilter] = useState('')
+  const seasons = riceSeasonsForDb(db)
+  const seasonDb = seasonFilter
+    ? {
+        ...db,
+        visits: db.visits.filter((visit) =>
+          seasonFilter === '__unassigned__' ? !visit.season?.trim() : visit.season === seasonFilter,
+        ),
+        cashAdvances: db.cashAdvances.filter((advance) =>
+          seasonFilter === '__unassigned__' ? !advance.season?.trim() : advance.season === seasonFilter,
+        ),
+      }
+    : db
 
   const health = healthCounts(db)
   const risk = riskCounts(db)
-  const weeks = visitsPerWeek(db)
-  const portfolio = portfolioTrend(db)
-  const mix = cashAdvanceMix(db)
+  const weeks = visitsPerWeek(seasonDb)
+  const portfolio = portfolioTrend(seasonDb)
+  const mix = cashAdvanceMix(seasonDb)
   const crops = plotYieldByCrop(db)
+  const selectedExpenses = seasonFilter
+    ? db.expenses.filter((expense) => expense.season === seasonFilter)
+    : db.expenses
+  const selectedHarvests = seasonFilter
+    ? db.harvests.filter((harvest) => harvest.season === seasonFilter)
+    : db.harvests
+  const selectedAdvances = seasonDb.cashAdvances
+  const income = selectedHarvests.reduce((sum, harvest) => sum + harvest.quantityKg * harvest.pricePerKg, 0)
+  const expenses = selectedExpenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const advances = selectedAdvances.reduce((sum, advance) => sum + advance.principal, 0)
+  const outstanding = selectedAdvances.reduce(
+    (sum, advance) => sum + Math.max(0, advance.principal - totalRepaid(advance)),
+    0,
+  )
+  const seasonLabel = seasonFilter === '__unassigned__' ? 'Unassigned season' : seasonFilter || 'All seasons'
 
   return (
     <>
@@ -33,6 +66,26 @@ export default function Analytics() {
           <h1 className="mt-2">Analytics</h1>
           <p className="text-sm mt-2">A simple overview of your visits, advances, crops, and farm health.</p>
         </div>
+      </div>
+
+      <div className="flex between wrap gap-md">
+        <div className="seg-title">Season analytics</div>
+        <label className="text-sm flex gap-sm" style={{ alignItems: 'center' }}>
+          Rice season
+          <select className="select" value={seasonFilter} onChange={(event) => setSeasonFilter(event.target.value)}>
+            <option value="">All seasons</option>
+            {seasons.map((season) => <option key={season} value={season}>{season}</option>)}
+            {(db.visits.some((visit) => !visit.season?.trim()) || db.cashAdvances.some((advance) => !advance.season?.trim())) && (
+              <option value="__unassigned__">Unassigned season</option>
+            )}
+          </select>
+        </label>
+      </div>
+      <div className="stat-grid">
+        <Stat label="Harvest income" value={fmtFinanceMoney(income)} note={seasonLabel} />
+        <Stat label="Expenses" value={fmtFinanceMoney(expenses)} note={seasonLabel} />
+        <Stat label="Net profit / loss" value={fmtFinanceMoney(income - expenses)} note="Income minus expenses" />
+        <Stat label="Advances outstanding" value={fmtFinanceMoney(outstanding)} note={`${fmtFinanceMoney(advances)} received`} />
       </div>
 
       <div className="card mt-4">
@@ -61,7 +114,7 @@ export default function Analytics() {
         <div className="card">
           <div className="card-row">
             <span className="card-title">Plot health</span>
-            <span className="text-mute text-sm">All fields</span>
+            <span className="text-mute text-sm">Current plots · all seasons</span>
           </div>
           <div className="mt-4">
             <DistributionBar
@@ -90,7 +143,7 @@ export default function Analytics() {
         <div className="card">
           <div className="card-row">
             <span className="card-title">Expected yield by crop</span>
-            <span className="text-mute text-sm">Season plan</span>
+            <span className="text-mute text-sm">Current plot plan</span>
           </div>
           <div className="chart-box" style={{ height: 270 }}><CropBar data={crops} /></div>
         </div>

@@ -1,4 +1,4 @@
-import type { Farmer, Plot } from '../domain/types'
+import type { DB, Farmer, Plot } from '../domain/types'
 
 let counter = 0
 
@@ -33,6 +33,20 @@ export function riceSeasonForFarmer(farmer: Farmer | undefined, plots: Plot[], d
   if (farmer?.activeSeason?.trim()) return farmer.activeSeason
   const lastSeason = plots.find((plot) => plot.farmerId === farmer?.id)?.season
   return lastSeason?.trim() || defaultRiceSeason(date)
+}
+
+export function riceSeasonsForDb(db: Pick<DB, 'farmers' | 'plots' | 'visits' | 'cashAdvances' | 'expenses' | 'harvests' | 'budgets'>): string[] {
+  const seasons = [
+    ...db.farmers.map((farmer) => farmer.activeSeason ?? ''),
+    ...db.plots.map((plot) => plot.season),
+    ...db.visits.map((visit) => visit.season ?? ''),
+    ...db.cashAdvances.map((advance) => advance.season ?? ''),
+    ...db.expenses.map((expense) => expense.season),
+    ...db.harvests.map((harvest) => harvest.season),
+    ...db.budgets.map((budget) => budget.season),
+  ]
+  return [...new Set(seasons.map((season) => season.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b))
 }
 
 export function ussdCode(id: string): string {

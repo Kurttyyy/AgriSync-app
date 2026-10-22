@@ -1,8 +1,8 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAppState } from '../data/store'
 import { createExpense, deleteExpense, updateExpense } from '../data/repository'
-import { defaultRiceSeason, riceSeasonForFarmer } from '../data/util'
+import { riceSeasonForFarmer, riceSeasonsForDb } from '../data/util'
 import { dbForUser } from '../data/selectors'
 import { fmtDate, fmtMoney } from '../data/format'
 import { Button, Chip, confirmDialog, Field, Seg, toast } from '../components/kit'
@@ -38,20 +38,21 @@ export default function Expenses() {
   const online = useAppState((s) => s.online)
   const [showForm, setShowForm] = useState(db.expenses.length === 0)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
+  const [seasonFilter, setSeasonFilter] = useState('')
+  const seasons = riceSeasonsForDb(db)
 
-  const expenses = useMemo(
-    () => [...db.expenses].sort((a, b) => b.date.localeCompare(a.date)),
-    [db.expenses],
-  )
+  const expenses = db.expenses
+    .filter((expense) => seasonFilter === '' || expense.season === seasonFilter)
+    .sort((a, b) => b.date.localeCompare(a.date))
   const total = expenses.reduce((s, e) => s + e.amount, 0)
 
-  const byCategory = useMemo(() => {
+  const byCategory = (() => {
     const sums = new Map<ExpenseCategory, number>()
-    for (const e of db.expenses) sums.set(e.category, (sums.get(e.category) ?? 0) + e.amount)
+    for (const e of expenses) sums.set(e.category, (sums.get(e.category) ?? 0) + e.amount)
     return [...sums.entries()]
       .map(([category, amount]) => ({ category, label: categoryLabel(category), amount }))
       .sort((a, b) => b.amount - a.amount)
-  }, [db.expenses])
+  })()
 
   return (
     <>
@@ -95,6 +96,17 @@ export default function Expenses() {
           )}
         </div>
       )}
+
+      <div className="flex between wrap gap-md mt-4">
+        <div className="seg-title">Season expense view</div>
+        <label className="text-sm flex gap-sm" style={{ alignItems: 'center' }}>
+          Rice season
+          <select className="select" value={seasonFilter} onChange={(event) => setSeasonFilter(event.target.value)}>
+            <option value="">All seasons</option>
+            {seasons.map((season) => <option key={season} value={season}>{season}</option>)}
+          </select>
+        </label>
+      </div>
 
       {expenses.length > 0 && (
         <RecordsTable
@@ -146,7 +158,7 @@ export default function Expenses() {
           </div>
         )}
 
-        <Button variant="accent" block className="mt-4" onClick={() => downloadReport(db)}>
+        <Button variant="accent" block className="mt-4" onClick={() => downloadReport({ ...db, expenses })}>
           <IconDownload width={16} height={16} /> Generate report
         </Button>
       </div>
@@ -182,7 +194,6 @@ function ExpenseForm({
   const farmers = [...db.farmers].sort((a, b) => a.name.localeCompare(b.name))
   const [farmerId, setFarmerId] = useState(initialExpense?.farmerId ?? '')
   const [date, setDate] = useState(initialExpense?.date.slice(0, 10) ?? todayInput())
-  const [season, setSeason] = useState(initialExpense?.season ?? defaultRiceSeason())
   const [category, setCategory] = useState<ExpenseCategory>(
     initialExpense && CATEGORIES.some((item) => item.id === initialExpense.category)
       ? initialExpense.category
@@ -215,15 +226,14 @@ function ExpenseForm({
       toast('Enter a name for your custom expense category.', 'alert')
       return
     }
-    if (!season.trim()) {
-      toast('Enter a rice season for this expense.', 'alert')
-      return
-    }
     const savedCategory = customCategoryMode ? customCategory.trim() : category
+    const expenseSeason = initialExpense?.farmerId === f.id
+      ? initialExpense.season
+      : riceSeasonForFarmer(f, db.plots)
     const expenseData = {
       farmerId: f.id,
       date: date ? new Date(`${date}T12:00:00`).toISOString() : new Date().toISOString(),
-      season: season.trim(),
+      season: expenseSeason,
       category: savedCategory,
       amount: Math.round(amt),
       description: description.trim() || undefined,
@@ -241,7 +251,6 @@ function ExpenseForm({
     if (!initialExpense) {
       setFarmerId('')
       setDate(todayInput())
-      setSeason(defaultRiceSeason())
       setAmount('')
       setDescription('')
       setCustomCategory('')
@@ -254,11 +263,7 @@ function ExpenseForm({
     <form onSubmit={submit}>
       <div className="expense-form-grid">
         <Field label="Farmer profile">
-          <select className="select" value={farmerId} onChange={(e) => {
-            const nextFarmer = db.farmers.find((farmer) => farmer.id === e.target.value)
-            setFarmerId(e.target.value)
-            setSeason(riceSeasonForFarmer(nextFarmer, db.plots))
-          }} required>
+          <select className="select" value={farmerId} onChange={(e) => setFarmerId(e.target.value)} required>
             <option value="">Choose a profile</option>
             {farmers.map((f) => (
               <option key={f.id} value={f.id}>{f.name} — {f.village}</option>
@@ -269,7 +274,13 @@ function ExpenseForm({
           <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </Field>
         <Field label="Rice season">
-          <input className="input" value={season} onChange={(e) => setSeason(e.target.value)} maxLength={60} required />
+          <input
+            className="input"
+            value={initialExpense?.farmerId === farmerId
+              ? initialExpense.season
+              : riceSeasonForFarmer(db.farmers.find((farmer) => farmer.id === farmerId), db.plots)}
+            readOnly
+          />
         </Field>
         <Field label="Expense category">
           <div className="pill-row" role="group" aria-label="Expense category">

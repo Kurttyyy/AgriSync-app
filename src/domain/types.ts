@@ -110,6 +110,7 @@ export interface EmailRecord {
 export interface CashAdvance {
   id: ID
   farmerId: ID
+  season?: string
   kind: 'cash-advance' | 'equipment' | 'inputs-financing' | 'grant'
   label: string
   principal: number

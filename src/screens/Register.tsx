@@ -13,6 +13,7 @@ export default function Register() {
   const [village, setVillage] = useState('')
   const [district, setDistrict] = useState('')
   const [farmSize, setFarmSize] = useState('')
+  const [activeSeason, setActiveSeason] = useState(defaultRiceSeason())
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -34,8 +35,8 @@ export default function Register() {
       setError('The passwords do not match.')
       return
     }
-    if (![name, email, phone, village, district].every((value) => value.trim())) {
-      setError('Complete your name, email, phone number, village, and city or municipality.')
+    if (![name, email, phone, village, district, activeSeason].every((value) => value.trim())) {
+      setError('Complete your name, email, phone number, village, city or municipality, and current rice season.')
       return
     }
     const size = Number(farmSize)
@@ -54,7 +55,7 @@ export default function Register() {
         district: district.trim(),
         farmSizeHa: size,
         primaryCrop: 'Palay (rice)',
-        activeSeason: defaultRiceSeason(),
+        activeSeason: activeSeason.trim(),
         creditRisk: 'medium',
         joinedDate: new Date().toISOString(),
       }, password)
@@ -115,6 +116,9 @@ export default function Register() {
             </Field>
             <Field label="Farm size (hectares)">
               <input className="input" type="number" min="0.1" step="0.1" value={farmSize} onChange={(e) => setFarmSize(e.target.value)} required />
+            </Field>
+            <Field label="Current rice season">
+              <input className="input" value={activeSeason} onChange={(e) => setActiveSeason(e.target.value)} placeholder="e.g. Wet season 2026" maxLength={60} required />
             </Field>
             <Field label="Password (at least 8 characters)">
               <div className="password-input-wrap">

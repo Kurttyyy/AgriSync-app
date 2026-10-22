@@ -4,6 +4,7 @@ import { useAppState } from '../data/store'
 import { cashAdvanceStatus, dbForUser } from '../data/selectors'
 import { addRepayment, createCashAdvance, totalRepaid } from '../data/repository'
 import { fmtCashAdvanceDueDate, fmtDate, fmtMoney } from '../data/format'
+import { riceSeasonForFarmer, riceSeasonsForDb } from '../data/util'
 import { Button, Chip, Field, Meta, Stat, toast } from '../components/kit'
 import { IconCashAdvance, IconPlus } from '../components/icons'
 import type { CashAdvance, DB, Repayment } from '../domain/types'
@@ -21,7 +22,11 @@ export default function CashAdvances() {
   const online = useAppState((state) => state.online)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(db.cashAdvances.length === 0)
-  const advances = [...db.cashAdvances].sort((a, b) => b.disbursedDate.localeCompare(a.disbursedDate))
+  const [seasonFilter, setSeasonFilter] = useState('')
+  const seasons = riceSeasonsForDb(db)
+  const advances = [...db.cashAdvances]
+    .filter((advance) => seasonFilter === '' || (advance.season?.trim() || '__unassigned__') === seasonFilter)
+    .sort((a, b) => b.disbursedDate.localeCompare(a.disbursedDate))
   const disbursed = advances.reduce((sum, advance) => sum + advance.principal, 0)
   const repaid = advances.reduce((sum, advance) => sum + totalRepaid(advance), 0)
   const outstanding = advances.reduce(
@@ -70,7 +75,19 @@ export default function CashAdvances() {
         </section>
       )}
 
-      <div className="seg-title">Advance summary</div>
+      <div className="flex between wrap gap-md">
+        <div className="seg-title">Advance summary</div>
+        <label className="text-sm flex gap-sm" style={{ alignItems: 'center' }}>
+          Rice season
+          <select className="select" value={seasonFilter} onChange={(event) => setSeasonFilter(event.target.value)}>
+            <option value="">All seasons</option>
+            {seasons.map((season) => <option key={season} value={season}>{season}</option>)}
+            {db.cashAdvances.some((advance) => !advance.season?.trim()) && (
+              <option value="__unassigned__">Unassigned season</option>
+            )}
+          </select>
+        </label>
+      </div>
       <div className="stat-grid">
         <Stat label="Total received" value={fmtMoney(disbursed)} note={`${advances.length} record${advances.length === 1 ? '' : 's'}`} icon={<IconCashAdvance width={14} height={14} />} />
         <Stat label="Total repaid" value={fmtMoney(repaid)} note={`${Math.round((repaid / Math.max(1, disbursed)) * 100)}% paid`} />
@@ -107,6 +124,7 @@ export default function CashAdvances() {
                     <span className="row-sub d-block">
                       Farmer: {db.farmers.find((farmer) => farmer.id === advance.farmerId)?.name ?? 'Unknown farmer'}
                     </span>
+                    <span className="row-sub d-block">{advance.season?.trim() || 'Unassigned season'}</span>
                     <span className="flex gap-md mt-2 wrap" style={{ fontSize: 12.5, color: 'var(--text)' }}>
                       <span>{fmtMoney(advance.principal)}</span>
                       <span>{percent}% repaid</span>
@@ -121,6 +139,7 @@ export default function CashAdvances() {
                 {isExpanded && (
                   <div className="card panel-in" style={{ margin: '4px 4px 12px', borderRadius: 12 }}>
                     <Meta rows={[
+                      ['Rice season', advance.season?.trim() || 'Unassigned season'],
                       ['Received', fmtDate(advance.disbursedDate)],
                       ['Due date', fmtCashAdvanceDueDate(advance.dueDate, advance.dueAfterHarvest)],
                       ['Amount repaid', fmtMoney(paid)],
@@ -246,6 +265,7 @@ function CashAdvanceForm({ db, online, onSaved }: { db: DB; online: boolean; onS
 
     createCashAdvance({
       farmerId,
+      season: riceSeasonForFarmer(farmers.find((farmer) => farmer.id === farmerId), db.plots),
       kind,
       label: label.trim() || kindLabel(kind),
       principal: Math.round(amount),
@@ -271,6 +291,13 @@ function CashAdvanceForm({ db, online, onSaved }: { db: DB; online: boolean; onS
               <option key={farmer.id} value={farmer.id}>{farmer.name} — {farmer.village}</option>
             ))}
           </select>
+        </Field>
+        <Field label="Rice season">
+          <input
+            className="input"
+            value={riceSeasonForFarmer(farmers.find((farmer) => farmer.id === farmerId), db.plots)}
+            readOnly
+          />
         </Field>
         <Field label="Advance type">
           <select className="select" value={kind} onChange={(event) => setKind(event.target.value as CashAdvance['kind'])}>

@@ -86,7 +86,7 @@ export function parseAccountBackup(value: unknown, allowedFarmerIds: ReadonlySet
     isString(entry.notes) && typeof entry.offline === 'boolean' && isDateString(entry.createdAt),
   )
   const cashAdvances = records<CashAdvance>(input.cashAdvances, 'cash advance', (entry) =>
-    isString(entry.id) && hasFarmer(entry) && isString(entry.kind) &&
+    isString(entry.id) && hasFarmer(entry) && (entry.season === undefined || isString(entry.season)) && isString(entry.kind) &&
     isString(entry.label) && isFiniteNumber(entry.principal) && entry.principal > 0 &&
     isDateString(entry.disbursedDate) && isString(entry.dueDate) &&
     ['active', 'repaid', 'overdue', 'defaulted'].includes(String(entry.status)) &&

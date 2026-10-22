@@ -89,6 +89,7 @@ export function startNewRiceSeason(farmerId: string, season: string): void {
     farmer.activeSeason ?? '',
     ...getState().db.plots.filter((item) => item.farmerId === farmerId).map((item) => item.season),
     ...getState().db.visits.filter((item) => item.farmerId === farmerId).map((item) => item.season ?? ''),
+    ...getState().db.cashAdvances.filter((item) => item.farmerId === farmerId).map((item) => item.season ?? ''),
     ...getState().db.expenses.filter((item) => item.farmerId === farmerId).map((item) => item.season),
     ...getState().db.harvests.filter((item) => item.farmerId === farmerId).map((item) => item.season),
     ...getState().db.budgets.filter((item) => item.farmerId === farmerId).map((item) => item.season),

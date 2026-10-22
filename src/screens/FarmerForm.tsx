@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAppState } from '../data/store'
-import { createFarmer, updateFarmer } from '../data/repository'
+import { createFarmer, startNewRiceSeason, updateFarmer } from '../data/repository'
 import { linkFarmerProfile } from '../data/store'
-import { toast, Button, Field } from '../components/kit'
+import { confirmDialog, toast, Button, Field } from '../components/kit'
 import { IconChevronLeft } from '../components/icons'
 import { defaultRiceSeason, riceSeasonForFarmer } from '../data/util'
 
@@ -31,6 +31,9 @@ export default function FarmerForm() {
     district: farmer?.district ?? '',
     farmSizeHa: farmer?.farmSizeHa?.toString() ?? '',
   }))
+  const [activeSeason, setActiveSeason] = useState(
+    farmer ? riceSeasonForFarmer(farmer, db.plots) : defaultRiceSeason(),
+  )
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
     setForm((current) => ({ ...current, [key]: value }))
 
@@ -58,7 +61,11 @@ export default function FarmerForm() {
       district: form.district.trim(),
       farmSizeHa: size,
       primaryCrop: 'Palay (rice)',
-      activeSeason: farmer ? riceSeasonForFarmer(farmer, db.plots) : defaultRiceSeason(),
+      activeSeason: activeSeason.trim(),
+    }
+    if (!activeSeason.trim()) {
+      toast('Enter the current rice season.', 'alert')
+      return
     }
     if (isNew) {
       const created = createFarmer({
@@ -70,9 +77,27 @@ export default function FarmerForm() {
       toast('Farmer profile added to your account.')
       navigate(`/farmers/${created.id}`)
     } else if (farmer) {
-      updateFarmer(farmer.id, data)
-      toast('Your farm profile was updated.')
-      navigate(`/farmers/${farmer.id}`)
+      const currentSeason = riceSeasonForFarmer(farmer, db.plots)
+      if (activeSeason.trim().toLowerCase() !== currentSeason.trim().toLowerCase()) {
+        confirmDialog(
+          'Start this rice season?',
+          `Starting "${activeSeason.trim()}" will preserve past records and reset this farmer's plot planting plans.`,
+          () => {
+            try {
+              startNewRiceSeason(farmer.id, activeSeason)
+              updateFarmer(farmer.id, data)
+              toast(`Started ${activeSeason.trim()}; your farm profile was updated.`)
+              navigate(`/farmers/${farmer.id}`)
+            } catch (error) {
+              toast(error instanceof Error ? error.message : 'Unable to update the rice season.', 'alert')
+            }
+          },
+        )
+      } else {
+        updateFarmer(farmer.id, data)
+        toast('Your farm profile was updated.')
+        navigate(`/farmers/${farmer.id}`)
+      }
     }
   }
 
@@ -121,6 +146,16 @@ export default function FarmerForm() {
             </Field>
             <Field label="Farm size (hectares)">
               <input className="input" type="number" min="0.1" step="0.1" value={form.farmSizeHa} onChange={(event) => set('farmSizeHa', event.target.value)} required />
+            </Field>
+            <Field label="Current rice season">
+              <input
+                className="input"
+                value={activeSeason}
+                onChange={(event) => setActiveSeason(event.target.value)}
+                placeholder="e.g. Wet season 2026"
+                maxLength={60}
+                required
+              />
             </Field>
           </div>
         </section>

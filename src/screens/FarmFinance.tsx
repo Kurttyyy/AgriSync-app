@@ -1,9 +1,9 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useAppState } from '../data/store'
-import { createHarvest, setSeasonBudget } from '../data/repository'
+import { createHarvest, setSeasonBudget, totalRepaid } from '../data/repository'
 import { dbForUser } from '../data/selectors'
 import { fmtDate, fmtFinanceMoney, fmtNum } from '../data/format'
-import { riceSeasonForFarmer } from '../data/util'
+import { riceSeasonForFarmer, riceSeasonsForDb } from '../data/util'
 import { Button, Field, toast } from '../components/kit'
 import type { DB } from '../domain/types'
 
@@ -13,16 +13,33 @@ export default function FarmFinance() {
   const db = dbForUser(allDb, user)
   const [farmerId, setFarmerId] = useState(db.farmers[0]?.id ?? '')
   const [harvestDate, setHarvestDate] = useState(todayInput())
-  const [harvestSeason, setHarvestSeason] = useState(riceSeasonForFarmer(db.farmers[0], db.plots))
   const [quantityKg, setQuantityKg] = useState('')
   const [pricePerKg, setPricePerKg] = useState('')
   const [budgetFarmerId, setBudgetFarmerId] = useState(db.farmers[0]?.id ?? '')
-  const [budgetSeason, setBudgetSeason] = useState(riceSeasonForFarmer(db.farmers[0], db.plots))
   const [budgetAmount, setBudgetAmount] = useState('')
+  const [seasonFilter, setSeasonFilter] = useState('')
 
-  const seasonRows = useMemo(() => buildSeasonRows(db), [db])
-  const grossIncome = db.harvests.reduce((sum, harvest) => sum + harvest.quantityKg * harvest.pricePerKg, 0)
-  const totalExpenses = db.expenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const seasons = riceSeasonsForDb(db)
+  const financeDb = seasonFilter
+    ? {
+        ...db,
+        cashAdvances: db.cashAdvances.filter((advance) => seasonFilter === '__unassigned__'
+          ? !advance.season?.trim()
+          : advance.season === seasonFilter),
+        expenses: db.expenses.filter((expense) => expense.season === seasonFilter),
+        harvests: db.harvests.filter((harvest) => harvest.season === seasonFilter),
+        budgets: db.budgets.filter((budget) => budget.season === seasonFilter),
+      }
+    : db
+  const seasonRows = buildSeasonRows(db)
+    .filter((row) => !seasonFilter || row.season === (seasonFilter === '__unassigned__' ? 'Unassigned season' : seasonFilter))
+  const grossIncome = financeDb.harvests.reduce((sum, harvest) => sum + harvest.quantityKg * harvest.pricePerKg, 0)
+  const totalExpenses = financeDb.expenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const advanceTotal = financeDb.cashAdvances.reduce((sum, advance) => sum + advance.principal, 0)
+  const advanceOutstanding = financeDb.cashAdvances.reduce(
+    (sum, advance) => sum + Math.max(0, advance.principal - totalRepaid(advance)),
+    0,
+  )
 
   function saveHarvest(event: FormEvent) {
     event.preventDefault()
@@ -32,14 +49,15 @@ export default function FarmFinance() {
       toast('Choose a farmer profile for this harvest.', 'alert')
       return
     }
-    if (!harvestSeason.trim() || !Number.isFinite(kg) || kg <= 0 || !Number.isFinite(price) || price < 0) {
-      toast('Enter a season, a positive harvest weight, and a valid price per kilogram.', 'alert')
+    if (!Number.isFinite(kg) || kg <= 0 || !Number.isFinite(price) || price < 0) {
+      toast('Enter a positive harvest weight and a valid price per kilogram.', 'alert')
       return
     }
+    const selectedFarmer = db.farmers.find((farmer) => farmer.id === farmerId)
     createHarvest({
       farmerId,
       date: new Date(`${harvestDate}T12:00:00`).toISOString(),
-      season: harvestSeason.trim(),
+      season: riceSeasonForFarmer(selectedFarmer, db.plots),
       quantityKg: kg,
       pricePerKg: price,
     })
@@ -55,11 +73,12 @@ export default function FarmFinance() {
       toast('Choose a farmer profile for this budget.', 'alert')
       return
     }
-    if (!budgetSeason.trim() || !Number.isFinite(amount) || amount <= 0) {
-      toast('Enter a season and a budget greater than zero.', 'alert')
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast('Enter a budget greater than zero.', 'alert')
       return
     }
-    setSeasonBudget({ farmerId: budgetFarmerId, season: budgetSeason.trim(), amount })
+    const selectedFarmer = db.farmers.find((farmer) => farmer.id === budgetFarmerId)
+    setSeasonBudget({ farmerId: budgetFarmerId, season: riceSeasonForFarmer(selectedFarmer, db.plots), amount })
     setBudgetAmount('')
     toast('Season budget saved. A matching farmer and season budget is replaced.')
   }
@@ -73,15 +92,29 @@ export default function FarmFinance() {
           <p className="text-sm mt-2">Record rice harvest income and compare it with expenses by season.</p>
         </div>
         <div className="flex gap-sm wrap finance-entries">
-          <button className="btn btn-ghost btn-sm" onClick={() => exportFinanceReport(db)}>Export CSV (Excel compatible)</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => exportFinanceReport(financeDb)}>Export CSV (Excel compatible)</button>
           <button className="btn btn-primary btn-sm" onClick={() => window.print()}>Save report as PDF / Print</button>
         </div>
       </div>
 
+      <div className="flex between wrap gap-md">
+        <div className="seg-title">Rice season view</div>
+        <label className="text-sm flex gap-sm" style={{ alignItems: 'center' }}>
+          Rice season
+          <select className="select" value={seasonFilter} onChange={(event) => setSeasonFilter(event.target.value)}>
+            <option value="">All seasons</option>
+            {seasons.map((season) => <option key={season} value={season}>{season}</option>)}
+            {db.cashAdvances.some((advance) => !advance.season?.trim()) && (
+              <option value="__unassigned__">Unassigned season</option>
+            )}
+          </select>
+        </label>
+      </div>
       <div className="stat-grid">
         <FinanceStat label="Harvest income" value={fmtFinanceMoney(grossIncome)} />
         <FinanceStat label="Recorded expenses" value={fmtFinanceMoney(totalExpenses)} />
         <FinanceStat label="Net profit / loss" value={fmtFinanceMoney(grossIncome - totalExpenses)} />
+        <FinanceStat label="Advance balance" value={fmtFinanceMoney(advanceOutstanding)} note={`${fmtFinanceMoney(advanceTotal)} received`} />
       </div>
 
       {db.farmers.length === 0 ? (
@@ -96,8 +129,6 @@ export default function FarmFinance() {
               <Field label="Farmer profile">
                 <select className="select" value={farmerId} onChange={(event) => {
                   setFarmerId(event.target.value)
-                  const selected = db.farmers.find((farmer) => farmer.id === event.target.value)
-                  setHarvestSeason(riceSeasonForFarmer(selected, db.plots))
                 }} required>
                 {db.farmers.map((farmer) => <option key={farmer.id} value={farmer.id}>{farmer.name}</option>)}
                 </select>
@@ -106,8 +137,8 @@ export default function FarmFinance() {
                 <Field label="Harvest date">
                   <input className="input" type="date" value={harvestDate} onChange={(event) => setHarvestDate(event.target.value)} required />
                 </Field>
-                <Field label="Rice season">
-                  <input className="input" value={harvestSeason} onChange={(event) => setHarvestSeason(event.target.value)} maxLength={60} required />
+                <Field label="Current rice season">
+                  <input className="input" value={riceSeasonForFarmer(db.farmers.find((farmer) => farmer.id === farmerId), db.plots)} readOnly />
                 </Field>
                 <Field label="Harvested weight (kg)">
                   <input className="input" type="number" min="0.01" step="0.01" value={quantityKg} onChange={(event) => setQuantityKg(event.target.value)} required />
@@ -128,14 +159,12 @@ export default function FarmFinance() {
               <Field label="Farmer profile">
                 <select className="select" value={budgetFarmerId} onChange={(event) => {
                   setBudgetFarmerId(event.target.value)
-                  const selected = db.farmers.find((farmer) => farmer.id === event.target.value)
-                  setBudgetSeason(riceSeasonForFarmer(selected, db.plots))
                 }} required>
                   {db.farmers.map((farmer) => <option key={farmer.id} value={farmer.id}>{farmer.name}</option>)}
                 </select>
               </Field>
-              <Field label="Rice season">
-                <input className="input" value={budgetSeason} onChange={(event) => setBudgetSeason(event.target.value)} maxLength={60} required />
+              <Field label="Current rice season">
+                <input className="input" value={riceSeasonForFarmer(db.farmers.find((farmer) => farmer.id === budgetFarmerId), db.plots)} readOnly />
               </Field>
               <Field label="Season budget (₱)">
                 <input className="input" type="number" min="0.01" step="0.01" value={budgetAmount} onChange={(event) => setBudgetAmount(event.target.value)} required />
@@ -154,7 +183,7 @@ export default function FarmFinance() {
         ) : (
           <div className="expense-table mt-3">
             <div className="expense-row finance-report-row finance-report-head">
-              <span>Farmer</span><span>Season</span><span>Income</span><span>Expenses</span><span>Budget / Net</span>
+              <span>Farmer</span><span>Season</span><span>Income</span><span>Expenses</span><span>Advances</span><span>Budget / Net</span>
             </div>
             {seasonRows.map((row) => (
               <div className="expense-row finance-report-row" key={`${row.farmerId}-${row.season}`}>
@@ -162,6 +191,10 @@ export default function FarmFinance() {
                 <span>{row.season}</span>
                 <span>{fmtFinanceMoney(row.income)}</span>
                 <span>{fmtFinanceMoney(row.expenses)}</span>
+                <span>
+                  {fmtFinanceMoney(row.advanceReceived)}
+                  <small className="d-block text-mute">{fmtFinanceMoney(row.advanceOutstanding)} outstanding</small>
+                </span>
                 <span>
                   Budget: {row.budget == null ? '—' : fmtFinanceMoney(row.budget)}
                   <br />
@@ -182,9 +215,9 @@ export default function FarmFinance() {
 
       <section className="card mt-4">
         <h2 className="card-title">Harvest records</h2>
-        {db.harvests.length === 0 ? <p className="text-sm text-mute mt-3">No harvests recorded yet.</p> : (
+        {financeDb.harvests.length === 0 ? <p className="text-sm text-mute mt-3">No harvests recorded for this view.</p> : (
           <div className="feed mt-2">
-            {[...db.harvests].sort((a, b) => b.date.localeCompare(a.date)).map((harvest) => (
+            {[...financeDb.harvests].sort((a, b) => b.date.localeCompare(a.date)).map((harvest) => (
               <div className="feed-item" key={harvest.id}>
                 <div className="feed-body grow">
                   <div className="feed-title">{db.farmers.find((farmer) => farmer.id === harvest.farmerId)?.name ?? 'Farmer'} · {harvest.season}</div>
@@ -200,8 +233,14 @@ export default function FarmFinance() {
   )
 }
 
-function FinanceStat({ label, value }: { label: string; value: string }) {
-  return <div className="stat"><div className="stat-label">{label}</div><div className="stat-value">{value}</div></div>
+function FinanceStat({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div className="stat">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      {note && <div className="stat-note">{note}</div>}
+    </div>
+  )
 }
 
 function buildSeasonRows(db: DB) {
@@ -211,6 +250,8 @@ function buildSeasonRows(db: DB) {
     season: string
     income: number
     expenses: number
+    advanceReceived: number
+    advanceOutstanding: number
     budget: number | null
   }>()
   const getRow = (farmerId: string, season: string) => {
@@ -223,6 +264,8 @@ function buildSeasonRows(db: DB) {
         season,
         income: 0,
         expenses: 0,
+        advanceReceived: 0,
+        advanceOutstanding: 0,
         budget: null,
       }
       rows.set(key, row)
@@ -231,6 +274,11 @@ function buildSeasonRows(db: DB) {
   }
   db.expenses.forEach((expense) => { getRow(expense.farmerId, expense.season).expenses += expense.amount })
   db.harvests.forEach((harvest) => { getRow(harvest.farmerId, harvest.season).income += harvest.quantityKg * harvest.pricePerKg })
+  db.cashAdvances.forEach((advance) => {
+    const row = getRow(advance.farmerId, advance.season?.trim() || 'Unassigned season')
+    row.advanceReceived += advance.principal
+    row.advanceOutstanding += Math.max(0, advance.principal - totalRepaid(advance))
+  })
   db.budgets.forEach((budget) => { getRow(budget.farmerId, budget.season).budget = budget.amount })
   return [...rows.values()].sort((a, b) => a.farmerName.localeCompare(b.farmerName) || a.season.localeCompare(b.season))
 }
@@ -242,6 +290,10 @@ function exportFinanceReport(db: DB): void {
     ...db.expenses.map((expense) => [
       'Expense', expense.date.slice(0, 10), farmerName(expense.farmerId), expense.season,
       `${expense.category}${expense.description ? ` — ${expense.description}` : ''}`, '', '', expense.amount,
+    ]),
+    ...db.cashAdvances.map((advance) => [
+      'Cash advance', advance.disbursedDate.slice(0, 10), farmerName(advance.farmerId), advance.season?.trim() || 'Unassigned season',
+      advance.label, '', '', advance.principal,
     ]),
     ...db.harvests.map((harvest) => [
       'Harvest income', harvest.date.slice(0, 10), farmerName(harvest.farmerId), harvest.season,
