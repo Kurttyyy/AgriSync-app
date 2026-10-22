@@ -106,6 +106,7 @@ export default function Login() {
         </form>
 
         <div className="login-links">
+          <Link className="login-qr-link" to="/forgot-password">Forgot password?</Link>
           <p className="login-register">
             New to the app? <Link to="/register">Create an account</Link>
           </p>

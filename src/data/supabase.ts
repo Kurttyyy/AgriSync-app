@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { DB } from '../domain/types'
+import { defaultRiceSeason } from './util'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -16,7 +17,7 @@ export function requireSupabase() {
 }
 
 export function emptyDatabase(): DB {
-  return { farmers: [], plots: [], visits: [], cashAdvances: [], expenses: [] }
+  return { farmers: [], plots: [], visits: [], cashAdvances: [], expenses: [], harvests: [], budgets: [] }
 }
 
 export async function loadFarmerData(userId: string): Promise<DB | null> {
@@ -34,7 +35,16 @@ export async function loadFarmerData(userId: string): Promise<DB | null> {
     plots: Array.isArray(saved?.plots) ? saved.plots : [],
     visits: Array.isArray(saved?.visits) ? saved.visits : [],
     cashAdvances: Array.isArray(saved?.cashAdvances) ? saved.cashAdvances : [],
-    expenses: Array.isArray(saved?.expenses) ? saved.expenses : [],
+    expenses: Array.isArray(saved?.expenses)
+      ? saved.expenses.map((expense) => ({
+        ...expense,
+        season: typeof expense.season === 'string' && expense.season.trim()
+          ? expense.season
+          : defaultRiceSeason(new Date(expense.date)),
+      }))
+      : [],
+    harvests: Array.isArray(saved?.harvests) ? saved.harvests : [],
+    budgets: Array.isArray(saved?.budgets) ? saved.budgets : [],
   }
 }
 

@@ -6,6 +6,15 @@ export function fmtMoney(n: number): string {
   }).format(n)
 }
 
+export function fmtFinanceMoney(n: number): string {
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n)
+}
+
 export function fmtNum(n: number, digits = 1): string {
   return new Intl.NumberFormat('en-PH', { maximumFractionDigits: digits }).format(n)
 }

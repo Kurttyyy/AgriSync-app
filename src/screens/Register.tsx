@@ -17,6 +17,7 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const databaseError = useAppState((state) => state.databaseError)
 
@@ -55,6 +56,10 @@ export default function Register() {
         creditRisk: 'medium',
         joinedDate: new Date().toISOString(),
       }, password)
+      if (result.confirmationRequired) {
+        setConfirmationEmail(email.trim().toLowerCase())
+        return
+      }
       if (!result.user) throw new Error('Account creation did not return a user.')
       navigate('/', { replace: true })
     } catch (cause) {
@@ -82,6 +87,12 @@ export default function Register() {
 
         <h1 className="login-title">Create your account</h1>
         <p className="login-sub">Each account is linked to one farmer profile.</p>
+
+        {confirmationEmail && (
+          <p className="login-success mb-3" role="status">
+            Your account was created. Confirm the email sent to {confirmationEmail}, then return to sign in.
+          </p>
+        )}
 
         <form onSubmit={submit}>
           <div className="form-grid">

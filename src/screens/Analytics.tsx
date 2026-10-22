@@ -15,7 +15,8 @@ export default function Analytics() {
   const allDb = useAppState((s) => s.db)
   const user = useAppState((s) => s.auth.user)
   const db = dbForUser(allDb, user)
-  const lastSync = useAppState((s) => s.lastSyncAt)
+  const databaseSavedAt = useAppState((s) => s.databaseSavedAt)
+  const databaseSaveStatus = useAppState((s) => s.databaseSaveStatus)
 
   const health = healthCounts(db)
   const risk = riskCounts(db)
@@ -100,8 +101,14 @@ export default function Analytics() {
       </div>
       <div className="card">
         <p className="text-sm text-mute">
-          These figures are calculated from records saved on this device
-          ({lastSync ? `last processed by the simulator ${lastSync.slice(0, 10)}` : 'no sync-simulator run yet'}). Summaries remain available offline.
+          These figures are calculated from your account records and remain available offline.
+          {' '}{databaseSaveStatus === 'saved' && databaseSavedAt
+            ? `Last saved to Supabase ${databaseSavedAt.slice(0, 10)}.`
+            : databaseSaveStatus === 'error'
+              ? 'The latest database save failed; see Sync Status to retry.'
+              : databaseSaveStatus === 'pending'
+                ? 'Changes are waiting to sync to Supabase.'
+                : 'Account save status: syncing.'}
         </p>
       </div>
     </>

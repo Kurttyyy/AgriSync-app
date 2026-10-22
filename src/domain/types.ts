@@ -126,10 +126,29 @@ export interface Expense {
   id: ID
   farmerId: ID
   date: string
+  season: string
   category: ExpenseCategory
   amount: number
   description?: string
   createdAt: string
+}
+
+export interface Harvest {
+  id: ID
+  farmerId: ID
+  date: string
+  season: string
+  quantityKg: number
+  pricePerKg: number
+  createdAt: string
+}
+
+export interface SeasonBudget {
+  id: ID
+  farmerId: ID
+  season: string
+  amount: number
+  updatedAt: string
 }
 
 export type OutboxStatus = 'pending' | 'syncing' | 'synced' | 'failed'
@@ -180,4 +199,6 @@ export interface DB {
   visits: Visit[]
   cashAdvances: CashAdvance[]
   expenses: Expense[]
+  harvests: Harvest[]
+  budgets: SeasonBudget[]
 }

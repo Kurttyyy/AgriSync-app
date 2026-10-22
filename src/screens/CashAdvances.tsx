@@ -253,7 +253,7 @@ function CashAdvanceForm({ db, online, onSaved }: { db: DB; online: boolean; onS
       dueDate: dueAfterHarvest ? '' : new Date(`${dueDate}T00:00:00`).toISOString(),
       dueAfterHarvest,
     })
-    toast('Cash advance saved on this device and added to the local queue.', online ? 'ok' : 'alert')
+    toast(online ? 'Cash advance saved and syncing to your account.' : 'Cash advance saved on this device; it will sync when online.', online ? 'ok' : 'alert')
     setLabel('')
     setPrincipal('')
     setDueDate('')

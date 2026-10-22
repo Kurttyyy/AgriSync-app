@@ -22,6 +22,7 @@ import {
 } from '../components/icons'
 import type { ExpenseCategory } from '../domain/types'
 import { CATEGORIES, categoryLabel, categoryTone } from './Expenses'
+import { defaultRiceSeason } from '../data/util'
 
 export default function FarmerDetail() {
   const { id } = useParams()
@@ -99,7 +100,7 @@ export default function FarmerDetail() {
         expectedYieldT,
         health: plot.health as 'good' | 'fair' | 'poor',
       })
-    toast('Plot saved on this device and added to the local queue.', online ? 'ok' : 'alert')
+    toast(online ? 'Plot saved and syncing to your account.' : 'Plot saved on this device; it will sync when online.', online ? 'ok' : 'alert')
     setShowPlot(false)
   }
 
@@ -117,11 +118,12 @@ export default function FarmerDetail() {
     createExpense({
       farmerId: f.id,
       date: new Date(expense.date).toISOString(),
+      season: defaultRiceSeason(new Date(expense.date)),
       category: expense.customCategoryMode ? expense.customCategory.trim() : expense.category,
       amount: Math.round(amt),
       description: expense.description.trim() || undefined,
     })
-    toast('Expense saved on this device and added to the local queue.', online ? 'ok' : 'alert')
+    toast(online ? 'Expense saved and syncing to your account.' : 'Expense saved on this device; it will sync when online.', online ? 'ok' : 'alert')
     setShowExpense(false)
     setExpense({
       date: new Date().toISOString().slice(0, 10),
@@ -211,7 +213,7 @@ export default function FarmerDetail() {
           <div className="flex gap-sm mt-4" style={{ background: 'var(--amber-soft)', borderRadius: 10, padding: '10px 12px' }}>
             <IconSync width={16} height={16} style={{ color: 'var(--amber)' }} />
             <span style={{ fontSize: 13, color: 'var(--gold-ink)' }}>
-              Changes are saved on this device and added to the local queue while you are offline.
+              Changes are saved on this device and will sync to your account when you reconnect.
             </span>
           </div>
         )}

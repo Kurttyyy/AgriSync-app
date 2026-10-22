@@ -71,7 +71,7 @@ export default function NewVisit() {
       followUpDate: form.followUpDate ? new Date(form.followUpDate).toISOString() : undefined,
     })
     toast(
-      'Visit saved on this device and added to the local queue.',
+      online ? 'Visit saved and syncing to your account.' : 'Visit saved on this device; it will sync when online.',
       online ? 'ok' : 'alert',
     )
     nav(`/farmers/${f.id}`)
@@ -160,7 +160,7 @@ export default function NewVisit() {
         {!online && (
           <div className="card mt-4" style={{ borderColor: 'rgba(217,154,43,.4)', background: 'var(--gold-soft)' }}>
             <div style={{ fontSize: 13, color: 'var(--gold-ink)', fontWeight: 600 }}>
-              Offline mode: this visit is stored on this device and remains queued until sync is available.
+              Offline mode: this visit is stored on this device and will sync automatically when online.
             </div>
           </div>
         )}

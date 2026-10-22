@@ -10,6 +10,11 @@ export function isoNow(): string {
   return new Date().toISOString()
 }
 
+export function defaultRiceSeason(date = new Date()): string {
+  const year = Number.isFinite(date.getTime()) ? date.getFullYear() : new Date().getFullYear()
+  return `Main season ${year}`
+}
+
 export function ussdCode(id: string): string {
   const seed = [...id].reduce((acc, c) => acc + c.charCodeAt(0), 0)
   return `*134*${1000 + (seed % 9000)}#`

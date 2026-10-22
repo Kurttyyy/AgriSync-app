@@ -28,7 +28,8 @@ export default function Dashboard() {
   const user = useAppState((state) => state.auth.user)
   const db = dbForUser(allDb, user)
   const outbox = outboxForUser(allOutbox, db)
-  const lastSync = useAppState((state) => state.lastSyncAt)
+  const databaseSaveStatus = useAppState((state) => state.databaseSaveStatus)
+  const databaseSavedAt = useAppState((state) => state.databaseSavedAt)
   const metrics = dashboardMetrics(db, outbox)
   const firstName = user?.name.split(' ')[0] ?? 'there'
   const totalFarmSize = db.farmers.reduce((sum, farmer) => sum + farmer.farmSizeHa, 0)
@@ -59,8 +60,14 @@ export default function Dashboard() {
           <div className="card-title">{online ? 'You are online' : 'You are offline'}</div>
           <p className="text-sm mt-2">
             {online
-              ? lastSync ? `The local simulator last processed records ${fmtRelative(lastSync)}.` : 'Your records are saved on this device.'
-              : `${metrics.pendingSync} record${metrics.pendingSync === 1 ? '' : 's'} waiting in the local queue.`}
+              ? databaseSaveStatus === 'saving'
+                ? 'Saving your account records to Supabase…'
+                : databaseSaveStatus === 'pending'
+                  ? 'Your latest changes are waiting to sync.'
+                  : databaseSaveStatus === 'error'
+                    ? 'The last database save failed. Open Sync Status to retry.'
+                    : databaseSavedAt ? `Account records last saved ${fmtRelative(databaseSavedAt)}.` : 'Account records are ready to sync.'
+              : 'Changes are saved on this device and will sync when you reconnect.'}
           </p>
         </div>
         <Chip tone={online ? 'tone-green' : 'tone-amber'} dot>
@@ -128,6 +135,14 @@ export default function Dashboard() {
           <span className="grow">
             <span className="row-title">Farm expenses</span>
             <span className="row-sub d-block">Record and review farm costs</span>
+          </span>
+          <IconArrowRight width={17} height={17} />
+        </Link>
+        <Link to="/finance" className="card quick-action">
+          <span className="avatar quick-action-gold"><IconExpense width={19} height={19} /></span>
+          <span className="grow">
+            <span className="row-title">Rice farm finance</span>
+            <span className="row-sub d-block">Track harvest income, budgets, and profit</span>
           </span>
           <IconArrowRight width={17} height={17} />
         </Link>

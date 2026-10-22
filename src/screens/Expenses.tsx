@@ -1,10 +1,11 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAppState } from '../data/store'
-import { createExpense } from '../data/repository'
+import { createExpense, deleteExpense, updateExpense } from '../data/repository'
+import { defaultRiceSeason } from '../data/util'
 import { dbForUser } from '../data/selectors'
 import { fmtDate, fmtMoney } from '../data/format'
-import { Button, Chip, Field, Seg, toast } from '../components/kit'
+import { Button, Chip, confirmDialog, Field, Seg, toast } from '../components/kit'
 import { IconDownload, IconExpense, IconPlus, IconSearch, IconWallet } from '../components/icons'
 import type { DB, Expense, ExpenseCategory } from '../domain/types'
 
@@ -36,6 +37,7 @@ export default function Expenses() {
   const db = dbForUser(allDb, user)
   const online = useAppState((s) => s.online)
   const [showForm, setShowForm] = useState(db.expenses.length === 0)
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
 
   const expenses = useMemo(
     () => [...db.expenses].sort((a, b) => b.date.localeCompare(a.date)),
@@ -58,7 +60,10 @@ export default function Expenses() {
           <div className="crumb">Farm operations finance</div>
           <h1 className="mt-2">Farm Expenses</h1>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
+        <button className="btn btn-primary btn-sm" onClick={() => {
+          setEditingExpense(null)
+          setShowForm((v) => !v)
+        }}>
           <IconPlus width={16} height={16} /> {showForm ? 'Hide form' : 'New expense'}
         </button>
       </div>
@@ -67,7 +72,7 @@ export default function Expenses() {
         <div className="card" style={{ marginBottom: 14 }}>
           <div className="card-row">
             <div>
-              <span className="card-title">Add an expense</span>
+              <span className="card-title">{editingExpense ? 'Edit expense' : 'Add an expense'}</span>
               <p className="text-sm mt-2">Enter who, when, and what the expense was for.</p>
             </div>
           </div>
@@ -80,12 +85,32 @@ export default function Expenses() {
               </Link>
             </div>
           ) : (
-            <ExpenseForm db={db} online={online} onSaved={() => setShowForm(false)} />
+            <ExpenseForm
+              key={editingExpense?.id ?? 'new'}
+              db={db}
+              online={online}
+              initialExpense={editingExpense ?? undefined}
+              onSaved={() => { setShowForm(false); setEditingExpense(null) }}
+            />
           )}
         </div>
       )}
 
-      {expenses.length > 0 && <RecordsTable expenses={expenses} farmers={db.farmers} />}
+      {expenses.length > 0 && (
+        <RecordsTable
+          expenses={expenses}
+          farmers={db.farmers}
+          onEdit={(expense) => { setEditingExpense(expense); setShowForm(true) }}
+          onDelete={(expense) => confirmDialog(
+            'Delete expense?',
+            'This expense will be removed from this account and its next database sync.',
+            () => {
+              deleteExpense(expense.id)
+              toast('Expense deleted.')
+            },
+          )}
+        />
+      )}
 
       <div className="seg-title mt-5">
         <IconExpense width={14} height={14} /> Expense summary
@@ -143,15 +168,36 @@ function ChipDot({ color }: { color: string }) {
   return <span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 3, background: color, verticalAlign: '-0.5px' }} />
 }
 
-function ExpenseForm({ db, online, onSaved }: { db: DB; online: boolean; onSaved: () => void }) {
+function ExpenseForm({
+  db,
+  online,
+  initialExpense,
+  onSaved,
+}: {
+  db: DB
+  online: boolean
+  initialExpense?: Expense
+  onSaved: () => void
+}) {
   const farmers = [...db.farmers].sort((a, b) => a.name.localeCompare(b.name))
-  const [farmerId, setFarmerId] = useState('')
-  const [date, setDate] = useState(todayInput())
-  const [category, setCategory] = useState<ExpenseCategory>('seeds')
-  const [customCategoryMode, setCustomCategoryMode] = useState(false)
-  const [customCategory, setCustomCategory] = useState('')
-  const [amount, setAmount] = useState('')
-  const [description, setDescription] = useState('')
+  const [farmerId, setFarmerId] = useState(initialExpense?.farmerId ?? '')
+  const [date, setDate] = useState(initialExpense?.date.slice(0, 10) ?? todayInput())
+  const [season, setSeason] = useState(initialExpense?.season ?? defaultRiceSeason())
+  const [category, setCategory] = useState<ExpenseCategory>(
+    initialExpense && CATEGORIES.some((item) => item.id === initialExpense.category)
+      ? initialExpense.category
+      : 'seeds',
+  )
+  const [customCategoryMode, setCustomCategoryMode] = useState(Boolean(
+    initialExpense && !CATEGORIES.some((item) => item.id === initialExpense.category),
+  ))
+  const [customCategory, setCustomCategory] = useState(
+    initialExpense && !CATEGORIES.some((item) => item.id === initialExpense.category)
+      ? initialExpense.category
+      : '',
+  )
+  const [amount, setAmount] = useState(initialExpense ? String(initialExpense.amount) : '')
+  const [description, setDescription] = useState(initialExpense?.description ?? '')
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -169,20 +215,39 @@ function ExpenseForm({ db, online, onSaved }: { db: DB; online: boolean; onSaved
       toast('Enter a name for your custom expense category.', 'alert')
       return
     }
+    if (!season.trim()) {
+      toast('Enter a rice season for this expense.', 'alert')
+      return
+    }
     const savedCategory = customCategoryMode ? customCategory.trim() : category
-    createExpense({
+    const expenseData = {
       farmerId: f.id,
-      date: date ? new Date(date).toISOString() : new Date().toISOString(),
+      date: date ? new Date(`${date}T12:00:00`).toISOString() : new Date().toISOString(),
+      season: season.trim(),
       category: savedCategory,
       amount: Math.round(amt),
       description: description.trim() || undefined,
-    })
+    }
+    if (initialExpense) {
+      updateExpense(initialExpense.id, expenseData)
+    } else createExpense(expenseData)
     toast(
-      'Expense saved on this device and added to the local queue.',
+      initialExpense
+        ? 'Expense updated.'
+        : online ? 'Expense saved and syncing to your account.' : 'Expense saved on this device; it will sync when online.',
       online ? 'ok' : 'alert',
     )
     onSaved()
-    setFarmerId(''); setDate(todayInput()); setAmount(''); setDescription(''); setCustomCategory(''); setCustomCategoryMode(false); setCategory('seeds')
+    if (!initialExpense) {
+      setFarmerId('')
+      setDate(todayInput())
+      setSeason(defaultRiceSeason())
+      setAmount('')
+      setDescription('')
+      setCustomCategory('')
+      setCustomCategoryMode(false)
+      setCategory('seeds')
+    }
   }
 
   return (
@@ -198,6 +263,9 @@ function ExpenseForm({ db, online, onSaved }: { db: DB; online: boolean; onSaved
         </Field>
         <Field label="Date">
           <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+        </Field>
+        <Field label="Rice season">
+          <input className="input" value={season} onChange={(e) => setSeason(e.target.value)} maxLength={60} required />
         </Field>
         <Field label="Expense category">
           <div className="pill-row" role="group" aria-label="Expense category">
@@ -270,14 +338,24 @@ function ExpenseForm({ db, online, onSaved }: { db: DB; online: boolean; onSaved
       <div className="flex gap-md mt-3 expense-form-actions">
         <button type="button" className="btn btn-ghost" onClick={onSaved}>Cancel</button>
         <Button type="submit">
-          <IconPlus width={15} height={15} /> Save expense
+          <IconPlus width={15} height={15} /> {initialExpense ? 'Save changes' : 'Save expense'}
         </Button>
       </div>
     </form>
   )
 }
 
-function RecordsTable({ expenses, farmers }: { expenses: Expense[]; farmers: DB['farmers'] }) {
+function RecordsTable({
+  expenses,
+  farmers,
+  onEdit,
+  onDelete,
+}: {
+  expenses: Expense[]
+  farmers: DB['farmers']
+  onEdit: (expense: Expense) => void
+  onDelete: (expense: Expense) => void
+}) {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<'' | ExpenseCategory>('')
 
@@ -323,18 +401,25 @@ function RecordsTable({ expenses, farmers }: { expenses: Expense[]; farmers: DB[
               <div className="expense-row expense-head">
                 <span>Date</span>
                 <span>Farmer</span>
+                <span>Season</span>
                 <span>Category</span>
                 <span className="mono">Amount</span>
+                <span>Actions</span>
               </div>
               {rows.map(({ expense, farmerName }) => {
                 return (
                   <div className="expense-row" key={expense.id}>
                     <span>{fmtDate(expense.date)}</span>
                     <span>{farmerName}</span>
+                    <span>{expense.season}</span>
                     <span>
                       <Chip tone={categoryTone(expense.category)}>{categoryLabel(expense.category)}</Chip>
                     </span>
                     <span className="mono" style={{ fontWeight: 650, color: 'var(--ink)' }}>{fmtMoney(expense.amount)}</span>
+                    <span className="flex gap-sm">
+                      <button className="btn btn-ghost btn-sm" onClick={() => onEdit(expense)}>Edit</button>
+                      <button className="btn btn-danger-ghost btn-sm" onClick={() => onDelete(expense)}>Delete</button>
+                    </span>
                   </div>
                 )
               })}
@@ -352,10 +437,14 @@ function RecordsTable({ expenses, farmers }: { expenses: Expense[]; farmers: DB[
 
 function downloadReport(db: DB): void {
   const farmerName = (id: string) => db.farmers.find((f) => f.id === id)?.name ?? 'Unknown'
-  const header = 'Date,Farmer,Category,Amount,Description'
-  const csvCell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
+  const header = 'Date,Farmer,Rice season,Category,Amount,Description'
+  const csvCell = (value: string | number) => {
+    const text = String(value)
+    const safeText = /^[\s]*[=+\-@]/.test(text) ? `'${text}` : text
+    return `"${safeText.replace(/"/g, '""')}"`
+  }
   const lines = db.expenses.map((e) => {
-    return [e.date.slice(0, 10), farmerName(e.farmerId), e.category, e.amount, e.description ?? '']
+    return [e.date.slice(0, 10), farmerName(e.farmerId), e.season, e.category, e.amount, e.description ?? '']
       .map(csvCell)
       .join(',')
   })

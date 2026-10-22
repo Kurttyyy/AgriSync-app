@@ -16,6 +16,8 @@ export function outboxForUser(outbox: OutboxItem[], db: DB): OutboxItem[] {
     ...db.visits.map((visit) => visit.id),
     ...db.cashAdvances.map((advance) => advance.id),
     ...db.expenses.map((expense) => expense.id),
+    ...db.harvests.map((harvest) => harvest.id),
+    ...db.budgets.map((budget) => budget.id),
   ])
   return outbox.filter((item) => ownedRecordIds.has(item.entityId))
 }
@@ -37,7 +39,7 @@ export function cashAdvanceStatus(advance: CashAdvance, now = Date.now()): CashA
 export function dbForUser(db: DB, user: AuthUser | null): DB {
   const farmerIds = user?.farmerIds?.length ? user.farmerIds : user?.farmerId ? [user.farmerId] : []
   if (user?.role !== 'farmer' || farmerIds.length === 0) {
-    return { farmers: [], plots: [], visits: [], cashAdvances: [], expenses: [] }
+    return { farmers: [], plots: [], visits: [], cashAdvances: [], expenses: [], harvests: [], budgets: [] }
   }
   const visibleFarmerIds = new Set(farmerIds)
   return {
@@ -46,6 +48,8 @@ export function dbForUser(db: DB, user: AuthUser | null): DB {
     visits: db.visits.filter((visit) => visibleFarmerIds.has(visit.farmerId)),
     cashAdvances: db.cashAdvances.filter((advance) => visibleFarmerIds.has(advance.farmerId)),
     expenses: db.expenses.filter((expense) => visibleFarmerIds.has(expense.farmerId)),
+    harvests: db.harvests.filter((harvest) => visibleFarmerIds.has(harvest.farmerId)),
+    budgets: db.budgets.filter((budget) => visibleFarmerIds.has(budget.farmerId)),
   }
 }
 

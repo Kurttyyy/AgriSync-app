@@ -17,6 +17,9 @@ import CashAdvances from './screens/CashAdvances'
 import Expenses from './screens/Expenses'
 import Analytics from './screens/Analytics'
 import SyncCenter from './screens/SyncCenter'
+import FarmFinance from './screens/FarmFinance'
+import ForgotPassword from './screens/ForgotPassword'
+import ResetPassword from './screens/ResetPassword'
 import type { AuthUser } from './domain/types'
 
 function ProtectedApp() {
@@ -37,6 +40,7 @@ function ProtectedApp() {
         <Route path="/cash-advances" element={<CashAdvances />} />
         <Route path="/expenses" element={<Expenses />} />
         <Route path="/analytics" element={<Analytics />} />
+        <Route path="/finance" element={<FarmFinance />} />
         <Route path="/sync" element={<SyncCenter />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -63,6 +67,8 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/qr" element={<QrAccess />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="*" element={<ProtectedApp />} />
       </Routes>
       <InstallAppPrompt />

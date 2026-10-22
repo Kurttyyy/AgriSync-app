@@ -3,12 +3,14 @@ import type {
   ChannelId,
   EmailRecord,
   Expense,
+  Harvest,
   Farmer,
   FarmerNote,
   CashAdvance,
   OutboxItem,
   Plot,
   Repayment,
+  SeasonBudget,
   SmsRecord,
   Visit,
 } from '../domain/types'
@@ -88,6 +90,8 @@ export function deleteFarmer(id: string): void {
       visits: s.db.visits.filter((v) => v.farmerId !== id),
       cashAdvances: s.db.cashAdvances.filter((i) => i.farmerId !== id),
       expenses: s.db.expenses.filter((e) => e.farmerId !== id),
+      harvests: s.db.harvests.filter((harvest) => harvest.farmerId !== id),
+      budgets: s.db.budgets.filter((budget) => budget.farmerId !== id),
     },
   }))
   enqueue('farmer', id, 'delete', { id, name: farmer.name })
@@ -238,4 +242,46 @@ export function createExpense(data: Omit<Expense, 'id' | 'createdAt'>): Expense 
   setState((s) => ({ db: { ...s.db, expenses: [expense, ...s.db.expenses] } }))
   enqueue('expense', expense.id, 'create', expense)
   return expense
+}
+
+export function updateExpense(id: string, patch: Omit<Expense, 'id' | 'createdAt'>): void {
+  const current = getState().db.expenses.find((item) => item.id === id)
+  if (!current) throw new Error('The expense record could not be found.')
+  const updated = { ...current, ...patch }
+  setState((s) => ({
+    db: { ...s.db, expenses: s.db.expenses.map((item) => item.id === id ? updated : item) },
+  }))
+  enqueue('expense', id, 'update', updated)
+}
+
+export function deleteExpense(id: string): void {
+  const current = getState().db.expenses.find((item) => item.id === id)
+  if (!current) throw new Error('The expense record could not be found.')
+  setState((s) => ({ db: { ...s.db, expenses: s.db.expenses.filter((item) => item.id !== id) } }))
+}
+
+export function createHarvest(data: Omit<Harvest, 'id' | 'createdAt'>): Harvest {
+  const harvest: Harvest = { ...data, id: uid('harvest'), createdAt: isoNow() }
+  setState((s) => ({ db: { ...s.db, harvests: [harvest, ...s.db.harvests] } }))
+  return harvest
+}
+
+export function setSeasonBudget(data: Omit<SeasonBudget, 'id' | 'updatedAt'>): SeasonBudget {
+  const current = getState().db.budgets.find((item) =>
+    item.farmerId === data.farmerId && item.season.toLowerCase() === data.season.toLowerCase(),
+  )
+  const budget: SeasonBudget = {
+    ...data,
+    id: current?.id ?? uid('budget'),
+    updatedAt: isoNow(),
+  }
+  setState((s) => ({
+    db: {
+      ...s.db,
+      budgets: current
+        ? s.db.budgets.map((item) => item.id === current.id ? budget : item)
+        : [budget, ...s.db.budgets],
+    },
+  }))
+  return budget
 }

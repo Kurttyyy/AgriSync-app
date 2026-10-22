@@ -1,13 +1,13 @@
 import { useEffect, type ReactNode, type SVGProps, type ReactElement } from 'react'
 import { NavLink, Link } from 'react-router-dom'
-import { getState, logout, useAppState } from '../data/store'
+import { logout, useAppState } from '../data/store'
+import { syncDatabaseNow } from '../data/store'
 import { runSync } from '../data/sync'
 import { dbForUser, outboxForUser } from '../data/selectors'
 import { toast, Avatar } from './kit'
 import {
   IconChart,
   IconCloudOff,
-  IconCloudOk,
   IconExpense,
   IconFarmers,
   IconHome,
@@ -15,6 +15,7 @@ import {
   IconCashAdvance,
   IconRefresh,
   IconSync,
+  IconWallet,
 } from './icons'
 
 export const NAV_ITEMS: {
@@ -28,6 +29,7 @@ export const NAV_ITEMS: {
   { to: '/cash-advances', label: 'Cash Advances', icon: IconCashAdvance },
   { to: '/expenses', label: 'Expenses', icon: IconExpense },
   { to: '/analytics', label: 'Analytics', icon: IconChart },
+  { to: '/finance', label: 'Rice Finance', icon: IconWallet },
   { to: '/sync', label: 'Sync Status', icon: IconSync },
 ]
 
@@ -36,12 +38,8 @@ function useReconnectAutoSync() {
     const hadOnline = () => {
       const prev = window.__agriledgerWasOnline
       window.__agriledgerWasOnline = navigator.onLine
-      if (navigator.onLine && prev === false && getState().settings.autoSync) {
-        const { db, outbox, auth } = getState()
-        const ownedOutbox = outboxForUser(outbox, dbForUser(db, auth.user))
-        void runSync('online-event', new Set(ownedOutbox.map((item) => item.id))).then((n) => {
-          if (n > 0) toast(`${n} records processed by the sync simulator`)
-        })
+      if (navigator.onLine && prev === false) {
+        void syncDatabaseNow().catch(() => undefined)
       }
     }
     window.addEventListener('online', hadOnline)
@@ -90,6 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const initials = user?.initials ?? initialsOf(displayName)
 
   const fatal = pending >= 2 && syncing
+  const databaseSaveStatus = useAppState((s) => s.databaseSaveStatus)
 
   return (
     <div className="app-shell">
@@ -143,7 +142,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span style={{ display: 'grid' }}>
               <Avatar initials={initials} size={38} />
             </span>
-            <button className="btn btn-ghost btn-sm logout-btn" onClick={logout} title="Sign out">
+            <button className="btn btn-ghost btn-sm logout-btn" onClick={() => {
+              void logout().catch((error: unknown) => {
+                toast(error instanceof Error ? error.message : 'Unable to sign out.', 'alert')
+              })
+            }} title="Sign out">
               <IconLogout width={16} height={16} />
               <span className="logout-label">Sign out</span>
             </button>
@@ -151,7 +154,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      {!online && <OfflineBanner pending={pending} itemIds={outbox.map((item) => item.id)} />}
+      {!online && <OfflineBanner databaseSaveStatus={databaseSaveStatus} />}
 
       <main className="main">{children}</main>
 
@@ -168,7 +171,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             {label}
           </NavLink>
         ))}
-        <button className="bn-item bn-signout" onClick={logout} aria-label="Sign out">
+        <button className="bn-item bn-signout" onClick={() => {
+          void logout().catch((error: unknown) => {
+            toast(error instanceof Error ? error.message : 'Unable to sign out.', 'alert')
+          })
+        }} aria-label="Sign out">
           <IconLogout width={22} height={22} />
           Sign out
         </button>
@@ -177,7 +184,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {pending > 0 && !fatal && (
         <button
           className="fab"
-          aria-label="Process queued records"
+          aria-label="Run simulated message processing"
           disabled={syncing}
           onClick={() => {
             if (syncing) return
@@ -231,32 +238,22 @@ function SyncButton({ pending, syncing, online, itemIds }: {
         void runSync('manual', new Set(itemIds)).then((n) => toast(n > 0 ? `${n} records processed` : 'All up to date'))
       }}
       disabled={disabled}
-      title={online ? 'Process queued records' : 'Connect to process queued records'}
+      title={online ? 'Run simulated message-channel processing' : 'Connect to run the message simulator'}
     >
       {syncing ? <IconSync className="spin" width={16} height={16} /> : <IconSync width={16} height={16} />}
-      <span>{syncing ? 'Processing…' : !online ? 'Offline' : pending > 0 ? `Process ${pending}` : 'Processed'}</span>
+      <span>{syncing ? 'Processing…' : !online ? 'Offline' : pending > 0 ? `Simulate ${pending}` : 'Simulator'}</span>
     </button>
   )
 }
 
-function OfflineBanner({ pending, itemIds }: { pending: number; itemIds: string[] }) {
+function OfflineBanner({ databaseSaveStatus }: { databaseSaveStatus: 'saved' | 'pending' | 'saving' | 'error' }) {
   return (
     <div className="offline-banner">
       <IconCloudOff width={18} height={18} />
       <span>
-        You&rsquo;re offline — {pending > 0 ? `${pending} record${pending === 1 ? '' : 's'} saved on device` : 'data is safe on this device'}.
+        You&rsquo;re offline — changes are saved on this device
+        {databaseSaveStatus === 'pending' || databaseSaveStatus === 'error' ? ' and will sync to Supabase when reconnected.' : '.'}
       </span>
-      {pending > 0 && (
-        <button
-          className="banner-btn"
-          onClick={() => {
-            if (navigator.onLine) void runSync('manual', new Set(itemIds))
-            else toast('Connect to the network to process queued records', 'alert')
-          }}
-        >
-          <IconCloudOk width={15} height={15} style={{ verticalAlign: '-2px' }} /> Sync
-        </button>
-      )}
     </div>
   )
 }

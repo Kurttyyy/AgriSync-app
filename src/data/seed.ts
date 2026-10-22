@@ -7,6 +7,8 @@ function build(): DB {
     visits: [],
     cashAdvances: [],
     expenses: [],
+    harvests: [],
+    budgets: [],
   }
 }
 

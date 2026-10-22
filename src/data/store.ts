@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { seed } from './seed'
-import { uid } from './util'
+import { defaultRiceSeason, uid } from './util'
 import {
   emptyDatabase,
   loadFarmerData,
@@ -48,6 +48,9 @@ export interface AppState {
   seeded: boolean
   authReady: boolean
   databaseError: string | null
+  databaseSaveStatus: 'saved' | 'pending' | 'saving' | 'error'
+  databaseSavedAt: string | null
+  databaseSaveError: string | null
 }
 
 function load<T>(key: string, fallback: T): T {
@@ -100,9 +103,13 @@ function normalizeCashAdvance(advance: StoredCashAdvance): CashAdvance {
   }
 }
 function normalizeLegacyExpense(expense: Expense): Expense {
-  if (expense.category !== 'other') return expense
+  const season = typeof expense.season === 'string' && expense.season.trim()
+    ? expense.season
+    : defaultRiceSeason(new Date(expense.date))
+  if (expense.category !== 'other') return { ...expense, season }
   return {
     ...expense,
+    season,
     category: expense.description?.trim() || 'Unspecified expense',
     description: undefined,
   }
@@ -140,7 +147,9 @@ let state: AppState = {
     cashAdvances: Array.isArray(loadedDb.cashAdvances)
       ? loadedDb.cashAdvances.map(normalizeCashAdvance)
       : migratedCashAdvances,
-    expenses: normalizedExpenses,
+    expenses: normalizedExpenses.map(normalizeLegacyExpense),
+    harvests: Array.isArray(loadedDb.harvests) ? loadedDb.harvests : [],
+    budgets: Array.isArray(loadedDb.budgets) ? loadedDb.budgets : [],
   },
   outbox: Array.isArray(loadedOutbox) ? loadedOutbox : [],
   syncLogs: Array.isArray(loadedSyncLogs) ? loadedSyncLogs : [],
@@ -156,15 +165,22 @@ let state: AppState = {
   seeded: true,
   authReady: Boolean(savedAuth.authenticated && signedInUser),
   databaseError: null,
+  databaseSaveStatus: savedAuth.authenticated ? 'pending' : 'saved',
+  databaseSavedAt: null,
+  databaseSaveError: null,
 }
 if (migratedCashAdvances.length > 0 ||
   (Array.isArray(loadedDb.cashAdvances) && loadedDb.cashAdvances.some((advance) =>
     advance.kind === 'microloan' || advance.dueAfterHarvest == null || !Array.isArray(advance.repayments))) ||
   (Array.isArray(loadedDb.expenses) && loadedDb.expenses.some((expense) =>
-    expense.category === 'other')) ||
+    expense.category === 'other' ||
+    typeof (expense as { season?: unknown }).season !== 'string' ||
+    !(expense as { season?: string }).season?.trim())) ||
   !Array.isArray(loadedDb.expenses) ||
   !Array.isArray(loadedDb.farmers) || !Array.isArray(loadedDb.plots) || !Array.isArray(loadedDb.visits) ||
-  !Array.isArray(loadedDb.cashAdvances)) {
+  !Array.isArray(loadedDb.cashAdvances) ||
+  !Array.isArray(loadedDb.harvests) ||
+  !Array.isArray(loadedDb.budgets)) {
   save(KEYS.db, state.db)
 }
 
@@ -178,6 +194,8 @@ const farmerOnlyDb: DB = localOwnerId ? state.db : {
   visits: state.db.visits.filter((visit) => registeredFarmerIds.has(visit.farmerId)),
   cashAdvances: state.db.cashAdvances.filter((advance) => registeredFarmerIds.has(advance.farmerId)),
   expenses: state.db.expenses.filter((expense) => registeredFarmerIds.has(expense.farmerId)),
+  harvests: (state.db.harvests ?? []).filter((harvest) => registeredFarmerIds.has(harvest.farmerId)),
+  budgets: (state.db.budgets ?? []).filter((budget) => registeredFarmerIds.has(budget.farmerId)),
 }
 const ownedRecordIds = new Set([
   ...farmerOnlyDb.farmers.map((farmer) => farmer.id),
@@ -185,6 +203,8 @@ const ownedRecordIds = new Set([
   ...farmerOnlyDb.visits.map((visit) => visit.id),
   ...farmerOnlyDb.cashAdvances.map((advance) => advance.id),
   ...farmerOnlyDb.expenses.map((expense) => expense.id),
+  ...farmerOnlyDb.harvests.map((harvest) => harvest.id),
+  ...farmerOnlyDb.budgets.map((budget) => budget.id),
 ])
 const farmerOnlyOutbox = state.outbox.filter((item) => ownedRecordIds.has(item.entityId))
 if (JSON.stringify(farmerOnlyDb) !== JSON.stringify(state.db)) {
@@ -224,19 +244,41 @@ function persist(patch: Partial<AppState>): void {
   }
   if ('users' in patch) save(KEYS.users, patch.users)
   if ('lastSyncAt' in patch) save(KEYS.meta, { seeded: true, lastSyncAt: patch.lastSyncAt })
-  if ('db' in patch && state.auth.user) scheduleDatabaseSave(state.auth.user.id, patch.db!)
+  if ('db' in patch && patch.db && state.auth.user) {
+    const userId = state.auth.user.id
+    state = { ...state, databaseSaveStatus: 'pending', databaseSaveError: null }
+    scheduleDatabaseSave(userId, patch.db)
+  }
 }
 
 let databaseSaveTimer: ReturnType<typeof setTimeout> | undefined
 let databaseSaveQueue: Promise<void> = Promise.resolve()
 
 function queueDatabaseSave(userId: string, db: DB): Promise<void> {
-  const saveRequest = databaseSaveQueue.catch(() => undefined).then(async () => {
+  const saveRequest = databaseSaveQueue.then(async () => {
     if (state.auth.user?.id !== userId) return
+    if (!state.online) {
+      setState({ databaseSaveStatus: 'pending' })
+      return
+    }
+    setState({ databaseSaveStatus: 'saving', databaseSaveError: null })
     await saveFarmerData(userId, db)
+    if (state.auth.user?.id === userId && state.db === db) {
+      setState({
+        databaseSaveStatus: 'saved',
+        databaseSavedAt: new Date().toISOString(),
+        databaseSaveError: null,
+      })
+    }
+  }).catch((error: unknown) => {
+    if (state.auth.user?.id === userId) {
+      const message = error instanceof Error ? error.message : 'Unable to save data to the database.'
+      setState({ databaseSaveStatus: 'error', databaseSaveError: message })
+    }
+    reportDatabaseError(error)
+    throw error
   })
-  databaseSaveQueue = saveRequest
-  void saveRequest.catch(reportDatabaseError)
+  databaseSaveQueue = saveRequest.catch(() => undefined)
   return saveRequest
 }
 
@@ -244,9 +286,26 @@ function scheduleDatabaseSave(userId: string, db: DB): void {
   if (databaseSaveTimer) clearTimeout(databaseSaveTimer)
   databaseSaveTimer = setTimeout(() => {
     databaseSaveTimer = undefined
-    if (state.auth.user?.id !== userId) return
-    void queueDatabaseSave(userId, db)
+    if (state.auth.user?.id !== userId || !state.online) return
+    void queueDatabaseSave(userId, db).catch(() => undefined)
   }, 350)
+}
+
+export async function syncDatabaseNow(): Promise<void> {
+  const userId = state.auth.user?.id
+  if (!userId) throw new Error('Sign in before syncing account records.')
+  if (!state.online) throw new Error('You are offline. Your changes will sync when the connection returns.')
+  if (databaseSaveTimer) {
+    clearTimeout(databaseSaveTimer)
+    databaseSaveTimer = undefined
+  }
+  await queueDatabaseSave(userId, state.db)
+}
+
+export async function replaceAccountDatabase(db: DB): Promise<void> {
+  if (!state.auth.user) throw new Error('Sign in before restoring an account backup.')
+  setState({ db, outbox: [] })
+  if (state.online) await syncDatabaseNow()
 }
 
 function reportDatabaseError(error: unknown): void {
@@ -388,6 +447,8 @@ export async function initializeAuth(): Promise<void> {
     } else {
       setState({
         auth: { user: null, authenticated: false },
+        db: emptyDatabase(),
+        outbox: [],
         authReady: true,
         databaseError: null,
       })
@@ -436,9 +497,24 @@ export async function login(username: string, password: string): Promise<AuthUse
     outbox: [],
     authReady: true,
     databaseError: null,
+    databaseSaveStatus: 'saved',
+    databaseSavedAt: new Date().toISOString(),
+    databaseSaveError: null,
   })
   if (!cloudDb && farmer) await saveFarmerData(data.user.id, db)
   return authenticatedUser
+}
+
+export async function requestPasswordReset(email: string): Promise<void> {
+  const { error } = await requireSupabase().auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    redirectTo: `${window.location.origin}/reset-password`,
+  })
+  if (error) throw error
+}
+
+export async function updateAccountPassword(password: string): Promise<void> {
+  const { error } = await requireSupabase().auth.updateUser({ password })
+  if (error) throw error
 }
 
 export async function registerFarmerAccount(
@@ -482,6 +558,9 @@ export async function registerFarmerAccount(
     outbox: [],
     authReady: true,
     databaseError: null,
+    databaseSaveStatus: 'saved',
+    databaseSavedAt: new Date().toISOString(),
+    databaseSaveError: null,
   })
   return { user: authenticatedUser, confirmationRequired: false }
 }
@@ -503,31 +582,28 @@ export function linkFarmerProfile(farmerId: string): void {
     .catch(reportDatabaseError)
 }
 
-export function logout(): void {
-  const client = requireSupabase()
+export async function logout(): Promise<void> {
   const userId = state.auth.user?.id
   if (databaseSaveTimer) {
     clearTimeout(databaseSaveTimer)
     databaseSaveTimer = undefined
   }
-  const savePendingChanges = userId ? queueDatabaseSave(userId, state.db) : Promise.resolve()
-  void savePendingChanges.then(async () => {
-    const { error } = await client.auth.signOut()
-    if (error) throw error
-  }).catch(reportDatabaseError).finally(() => {
-    setState({
-      auth: { user: null, authenticated: false },
-      db: emptyDatabase(),
-      outbox: [],
-    })
+  if (userId && state.databaseSaveStatus !== 'saved') {
+    if (!state.online) throw new Error('You are offline and have unsynced changes. Reconnect and sync before signing out.')
+    await queueDatabaseSave(userId, state.db)
+  }
+  const { error } = await requireSupabase().auth.signOut()
+  if (error) throw error
+  setState({
+    auth: { user: null, authenticated: false },
+    db: emptyDatabase(),
+    outbox: [],
   })
 }
 
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
     if (!getState().online) setState({ online: true })
-    const userId = state.auth.user?.id
-    if (userId) void queueDatabaseSave(userId, state.db)
   })
   window.addEventListener('offline', () => {
     if (getState().online) setState({ online: false })
@@ -556,6 +632,9 @@ export function resetAll(): void {
     seeded: true,
     authReady: true,
     databaseError: null,
+    databaseSaveStatus: 'saved',
+    databaseSavedAt: null,
+    databaseSaveError: null,
   }
   listeners.forEach((l) => l())
 }
