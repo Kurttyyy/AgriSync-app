@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode, type SVGProps, type ReactElement } from 'react'
 import { NavLink, Link } from 'react-router-dom'
-import { logout, syncDatabaseNow, useAppState } from '../data/store'
+import { logout, useAppState } from '../data/store'
+import { runSync } from '../data/sync'
 import { toast, Avatar } from './kit'
 import {
   IconChart,
@@ -32,23 +33,14 @@ export const NAV_ITEMS: {
 
 function useReconnectAutoSync() {
   useEffect(() => {
-    const hadOnline = () => {
-      const prev = window.__agriledgerWasOnline
-      window.__agriledgerWasOnline = navigator.onLine
-      if (navigator.onLine && prev === false) {
-        void syncDatabaseNow().catch(() => undefined)
-      }
+    const handleOnline = () => {
+      void runSync('online-event').catch((error: unknown) => {
+        toast(error instanceof Error ? error.message : 'Unable to synchronize queued changes.', 'alert')
+      })
     }
-    window.addEventListener('online', hadOnline)
-    hadOnline()
-    return () => window.removeEventListener('online', hadOnline)
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
   }, [])
-}
-
-declare global {
-  interface Window {
-    __agriledgerWasOnline?: boolean
-  }
 }
 
 export function AppShell({ children }: { children: ReactNode }) {

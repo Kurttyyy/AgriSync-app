@@ -42,7 +42,7 @@ export default function FarmerForm() {
     set('phone', PH_PREFIX + (digits ? formatLocal(digits) : ''))
   }
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault()
     if (!isNew && !farmer) {
       toast('Your farm profile could not be found.', 'alert')
@@ -73,8 +73,19 @@ export default function FarmerForm() {
         creditRisk: 'medium',
         joinedDate: new Date().toISOString(),
       })
-      linkFarmerProfile(created.id)
-      toast('Farmer profile added to your account.')
+      let linked = true
+      try {
+        await linkFarmerProfile(created.id)
+      } catch (error) {
+        linked = false
+        toast(
+          error instanceof Error
+            ? `The profile was added on this device, but its Supabase account link failed: ${error.message}`
+            : 'The profile was added on this device, but its Supabase account link failed.',
+          'alert',
+        )
+      }
+      if (linked) toast('Farmer profile added to your account.')
       navigate(`/farmers/${created.id}`)
     } else if (farmer) {
       const currentSeason = riceSeasonForFarmer(farmer, db.plots)

@@ -52,15 +52,17 @@ export async function loadAuthenticatedFarmerProfile(): Promise<AuthenticatedFar
 }
 
 export async function loadFarmerData(userId: string): Promise<DB | null> {
-  const { data, error } = await requireSupabase()
-    .from('farmer_data')
-    .select('data')
-    .eq('user_id', userId)
-    .maybeSingle()
+  const client = requireSupabase()
+  const { data: authData, error: authError } = await client.auth.getUser()
+  if (authError) throw authError
+  if (authData.user?.id !== userId) {
+    throw new Error('The active Supabase account changed before farmer records could be loaded.')
+  }
+  const { data, error } = await client.rpc('load_farmer_account_data')
   if (error) throw error
   if (!data) return null
 
-  const saved = data.data as Partial<DB> | null
+  const saved = data as Partial<DB>
   return {
     farmers: Array.isArray(saved?.farmers) ? saved.farmers : [],
     plots: Array.isArray(saved?.plots) ? saved.plots : [],
@@ -80,8 +82,12 @@ export async function loadFarmerData(userId: string): Promise<DB | null> {
 }
 
 export async function saveFarmerData(userId: string, db: DB): Promise<void> {
-  const { error } = await requireSupabase()
-    .from('farmer_data')
-    .upsert({ user_id: userId, data: db }, { onConflict: 'user_id' })
+  const client = requireSupabase()
+  const { data: authData, error: authError } = await client.auth.getUser()
+  if (authError) throw authError
+  if (authData.user?.id !== userId) {
+    throw new Error('The active Supabase account changed before farmer records could be saved.')
+  }
+  const { error } = await client.rpc('save_farmer_account_data', { p_data: db })
   if (error) throw error
 }

@@ -18,11 +18,11 @@
 
 AgriSync is an installable, responsive web application for recording rice-farm and farmer-finance information. It brings farmer profiles, plots, visits, cash advances and repayments, expenses, harvests, budgets, and analytics into one application.
 
-The application combines a React and TypeScript frontend, a browser-persisted local store, Supabase Authentication, and a Supabase PostgreSQL account-data table. Previously authenticated users can use locally cached records while disconnected; account changes are saved locally and can be uploaded when connectivity returns. A persistent outbox tracks queued work. Optional cash-advance email updates use EmailJS when configured. AgriSync does not send SMS or provide USSD/mobile-money functionality; the farmer contact action can open the device's native messaging application.
+The application combines a React and TypeScript frontend, a browser-persisted local store, Supabase Authentication, and normalized Supabase PostgreSQL tables for farm records. Previously authenticated users can use locally cached records while disconnected; account changes are saved locally and can be uploaded when connectivity returns. A persistent outbox tracks queued work. Optional cash-advance email updates use EmailJS when configured. AgriSync does not send SMS or provide USSD/mobile-money functionality; the farmer contact action can open the device's native messaging application.
 
-The current cloud data model intentionally preserves the repository's existing JSONB design: all farm records for one account are stored in one `farmer_data.data` document. This is not a normalized relational schema. The account row is protected by Row Level Security (RLS), but individual JSON objects do not have PostgreSQL foreign keys or independent RLS policies.
+The current cloud data model uses relational tables with PostgreSQL foreign keys and per-table Row Level Security (RLS). A migration backfills existing account JSON into these tables and preserves the original `farmer_data.data` snapshot as a legacy archive. Auth UUID remains the account owner ID; the existing sequential `farmer_number` stays separate.
 
-This project demonstrates a practical frontend-to-cloud integration and offline-capable workflow. It should not be described as a fully normalized production backend, multi-device conflict-resolution system, or multi-channel messaging platform.
+The system provides database-enforced referential integrity and atomic cloud synchronization. Concurrent multi-device edits still do not have field-level conflict merging, and SMS/USSD are not supported communication channels.
 
 ## 2. Problem Definition
 
@@ -40,7 +40,7 @@ The solution connects:
 
 ### Desired outcome
 
-Provide a single interface where a farmer can maintain farm and finance records, review summaries, and save the account snapshot to Supabase when online—without losing already-cached work merely because the network is unavailable.
+Provide a single interface where a farmer can maintain farm and finance records, review summaries, and synchronize relational records with Supabase when online—without losing already-cached work merely because the network is unavailable.
 
 ### Project objectives
 
@@ -65,11 +65,9 @@ Provide a single interface where a farmer can maintain farm and finance records,
 - Optional EmailJS email delivery for cash-advance updates when configured in Settings.
 - Native SMS-app handoff initiated by the user; AgriSync itself does not send messages.
 
-### Not implemented as cloud relational features
+### Current boundaries
 
-- Separate PostgreSQL tables and foreign keys for each farm record type.
-- Per-record RLS policies or independent database operations for nested JSON records.
-- Robust concurrent multi-device synchronization or conflict resolution.
+- Robust concurrent multi-device synchronization or field-level conflict resolution.
 - Direct SMS, USSD, or mobile-money provider integration.
 - Server-side analytics or Edge Functions.
 - Automated unit, integration, or browser end-to-end test suites in this repository.
@@ -85,8 +83,8 @@ AgriSync uses a client-side, local-first architecture with a repository abstract
 - **Domain:** TypeScript types for application records and state.
 - **Repository:** functions mutate the local application database and enqueue outbox items.
 - **State and persistence:** a `useSyncExternalStore`-based store persisted in browser `localStorage`.
-- **Cloud adapter:** Supabase JavaScript client, Auth, and account-row read/upsert.
-- **Synchronization:** a coordinator saves the account snapshot and updates queue status.
+- **Cloud adapter:** Supabase JavaScript client and Auth; normalized relational data access through PostgreSQL functions.
+- **Synchronization:** a coordinator submits the account's data as one authenticated database transaction and updates queue status.
 - **PWA runtime:** Vite PWA plugin, manifest, and Workbox service worker.
 - **Optional notifications:** EmailJS for configured cash-advance emails.
 
@@ -111,13 +109,13 @@ flowchart LR
 
   subgraph Supabase["Supabase project"]
     Auth["Supabase Auth"]
-    RLS["PostgreSQL: public.farmer_data\nuser_id UUID + farmer_number + data JSONB"]
-    Policy["RLS: auth.uid() = user_id"]
+      RLS["PostgreSQL relational tables\nprofiles, plots, visits, advances, repayments, expenses, harvests, budgets"]
+    Policy["Per-table RLS: auth.uid() = owner_id\nComposite foreign keys enforce same-owner relationships"]
     Auth --> Policy
     Policy --> RLS
   end
 
-  Sync -->|"select account row / upsert account snapshot"| RLS
+  Sync -->|"authenticated transactional RPC"| RLS
   UI -->|"sign up, sign in, reset password, session"| Auth
   Sync -->|"when configured; not a farm-data store"| Email["EmailJS"]
 ```
@@ -139,8 +137,8 @@ sequenceDiagram
   Store->>Store: Persist snapshot in localStorage
   Repo->>Outbox: Enqueue entity/action/payload/status
   alt Online and signed in
-    Store->>Cloud: Debounced upsert account snapshot
-    Cloud-->>Store: Success or database error
+    Store->>Cloud: Call authenticated transactional save function
+    Cloud-->>Store: Commit or rollback with database error
     Store->>Outbox: Mark cloud queue entries synced after successful save
   else Offline or request fails
     Store->>Outbox: Retain pending/failed work locally
@@ -148,36 +146,31 @@ sequenceDiagram
   end
 ```
 
-**Important implementation detail:** queue entries describe individual local changes, but farm data is uploaded as a complete account snapshot with an upsert on `user_id`. The application does not execute one Supabase `insert`, `update`, or `delete` for each nested record. This supports retrying the same account write without creating duplicate account rows, but it does not provide record-level merge semantics.
+**Important implementation detail:** queue entries describe local changes, while the repository submits the current account dataset to a PostgreSQL function. That function upserts typed relational rows, removes rows absent from the submitted state, and commits the operation atomically. Stable application record IDs make retries idempotent. It is still a whole-account synchronization operation, not a multi-device merge protocol.
 
 ## 5. Data Model and Mapping
 
 ### 5.1 Cloud table
 
-The current SQL migrations create or extend one table:
+The first two SQL migrations create the account identity row and sequential account number. The third migration adds the normalized record tables:
 
 | Column | Meaning | Key/constraint |
 |---|---|---|
 | `user_id` | Supabase Auth account UUID | Primary key; references `auth.users(id)` with `ON DELETE CASCADE` |
-| `data` | JSONB account snapshot | Not null; contains the application record collections |
+| `data` | Original JSONB account snapshot | Retained as a legacy archive and migration source; current app reads/writes use normalized tables |
 | `farmer_number` | Sequential numeric account number | Added by the second migration; unique with a sequence default |
 
-RLS is enabled on `farmer_data`. The policy allows authenticated access to a row only when `auth.uid()` equals that row's `user_id`. The migration uses additive DDL and does not drop existing tables or farmer rows.
+The normalized tables are `farmer_profiles`, `farm_plots`, `farmer_visits`, `cash_advances`, `cash_advance_repayments`, `farmer_notes`, `cash_advance_emails`, `farm_expenses`, `farm_harvests`, and `season_budgets`. Each table has an owner UUID used by its RLS policy. Farmer profiles reference `auth.users`; child records reference their parent using composite keys that include the same owner UUID.
 
-### 5.2 JSON record collections
+### 5.2 Relational record tables
 
-| JSON property | TypeScript model | Relationship represented in JSON |
+| Table | TypeScript model | PostgreSQL relationship |
 |---|---|---|
-| `farmers` | `Farmer[]` | Farmer profile records |
-| `plots` | `Plot[]` | `farmerId` points to a farmer profile ID |
-| `visits` | `Visit[]` | `farmerId` points to a farmer profile ID |
-| `cashAdvances` | `CashAdvance[]` | `farmerId` points to a farmer profile ID |
-| `expenses` | `Expense[]` | `farmerId` points to a farmer profile ID |
-| `harvests` | `Harvest[]` | `farmerId` points to a farmer profile ID |
-| `budgets` | `SeasonBudget[]` | `farmerId` points to a farmer profile ID |
-| Nested in `cashAdvances` | `Repayment[]`, notes, and email history | Repayments point to a cash-advance ID; notes and email history belong to the advance |
+| `farmer_profiles` | `Farmer[]` | Composite owner-aware primary key `(id, owner_id)` |
+| `farm_plots`, `farmer_visits`, `cash_advances`, `farm_expenses`, `farm_harvests`, `season_budgets` | Related TypeScript records | Composite foreign key `(farmer_id, owner_id)` references `farmer_profiles(id, owner_id)` with `ON DELETE CASCADE` |
+| `cash_advance_repayments`, `farmer_notes`, `cash_advance_emails` | Nested repayment, note, and email history | Composite foreign key `(cash_advance_id, owner_id)` references `cash_advances(id, owner_id)` with `ON DELETE CASCADE` |
 
-These are application-level references inside JSON, not database-enforced foreign keys. A farmer profile's generated string ID is distinct from the Supabase Auth UUID and the numeric `farmer_number`.
+These database constraints prevent a child record from referencing a missing parent or a record owned by a different account. Deleting a farmer cascades to that farmer's plots, visits, advances, expenses, harvests, and budgets; deleting an advance cascades to its repayments, notes, and email history. The `farmer_number` remains a separate sequential account number, distinct from both the Supabase Auth UUID and app-generated farmer profile ID.
 
 ### 5.3 Identity mapping
 
@@ -196,7 +189,7 @@ Passwords are handled by Supabase Auth. The application does not write passwords
 - Legacy cash-advance kind values and missing repayment fields are normalized by the local store.
 - Input forms validate key values such as farm size, expenses, harvest quantity, budget amount, and repayment amount before saving.
 - Account backups are checked for supported format/version, duplicate IDs, record validity, and farmer IDs belonging to the signed-in account.
-- The database layer stores a whole JSON snapshot and does not enforce detailed validation constraints as normalized SQL columns would.
+- The database also enforces key numeric and enum constraints for normalized columns; relationship ownership is enforced by composite foreign keys.
 
 ## 6. Integration Implementation
 
@@ -213,17 +206,13 @@ First-time cloud registration and login require internet. Offline use is limited
 
 ### 6.2 Cloud persistence
 
-The adapter reads the signed-in account row from `farmer_data` and writes it using:
-
-```ts
-upsert({ user_id: userId, data: db }, { onConflict: 'user_id' })
-```
+The adapter calls authenticated PostgreSQL functions to load and save the signed-in account's normalized records. Save operations run transactionally in PostgreSQL, upsert stable IDs, and reconcile removed records. The legacy `farmer_data.data` column is retained as a migration archive and is not the active persistence path.
 
 Supabase errors are thrown from the adapter and reflected in the store's database-save error status. Writes are debounced and serialized. A manual sync control is also available.
 
 ### 6.3 Offline persistence and outbox
 
-The browser store persists the database snapshot and outbox to `localStorage`. Repository operations update the local snapshot first and enqueue an item with an entity, action, payload, status, attempt count, and timestamp. Cloud-channel work is treated as synchronized after the Supabase account snapshot save succeeds. Failed cloud saves remain visible/retryable; the `online` event attempts a save for the active account.
+The browser store persists the local database snapshot and outbox to `localStorage`. Repository operations update the local snapshot first and enqueue an item with an entity, action, payload, status, attempt count, and timestamp. Cloud-channel work is treated as synchronized only after the atomic relational save succeeds, and a save only acknowledges queue entries included in that submitted snapshot. Failed queue items are retried on reconnect; reconnect also uploads the current account snapshot when the outbox is empty, which covers restored backups with no queued operations. Email delivery waits for the account snapshot save and remains queued if that save fails.
 
 The app's current persistence is browser `localStorage`, not an encrypted database. Device access and browser profile security matter, especially on shared devices. Clearing browser storage can remove unsynchronized local work.
 
@@ -234,7 +223,7 @@ The old simulated SMS/USSD queue and simulation history are removed during local
 - **SMS:** AgriSync does not send SMS. The farmer contact action hands off to the device's native messaging application; actual sending is controlled by the user and their device/provider.
 - **USSD/mobile money:** not provided by AgriSync.
 - **Email:** cash-advance email notifications use EmailJS only when its service ID, template ID, and public key have been configured in Settings. Unconfigured attempts and provider errors remain visibly failed; they are not reported as sent.
-- **Supabase:** used for Auth and account snapshot storage.
+- **Supabase:** used for Auth and normalized relational record storage.
 
 The EmailJS public key is intended for browser use. Do not enter private provider credentials or a Supabase service-role key into the frontend settings.
 
@@ -249,13 +238,13 @@ Vite produces the production bundle in `dist/`. The repository includes Vercel a
 | Supabase environment variables missing | Client setup reports that the database is not configured; cloud features cannot be used |
 | Cloud request or RLS failure | Supabase adapter throws the error; store updates database save status and reports the database error |
 | Offline edit | Data remains in local browser storage and queue; cloud sync waits for connectivity |
-| Reconnection | Store marks the device online and attempts account snapshot synchronization |
+| Reconnection | Store marks the device online and attempts transactional relational synchronization |
 | Manual retry | Sync Center offers retry actions for failed queue items and a manual account sync control |
 | EmailJS not configured or request fails | Email queue item is marked failed with an explanation and can be retried after configuration or error resolution |
 | Invalid form values | Relevant screens/repository functions show errors or reject invalid values |
 | Expired or ended session | Auth state listener clears authenticated app state on Supabase sign-out event |
 | Local storage access failure | Error is logged and a storage-error event is dispatched; browser quota/security limitations remain possible |
-| Concurrent edits from multiple devices | No robust merge/conflict-resolution strategy; simultaneous snapshot upserts may overwrite changes |
+| Concurrent edits from multiple devices | No robust merge/conflict-resolution strategy; a later whole-account save may overwrite newer records |
 
 Sync Center shows the database save status, queue status, retry controls, and local sync history. The sync history is local to the browser and is not a centralized server audit log.
 
@@ -304,10 +293,16 @@ EmailJS delivery is external-provider functionality and has not been verified wi
 | `npm run build` | Passed | TypeScript project build and Vite production bundle complete |
 | `npm run lint` | Passed | ESLint reports no lint errors |
 | `git diff --check` | Passed | No whitespace errors in the code changes checked |
+| Local browser route smoke check | Passed | Vite served the app; login, registration, forgot-password, and reset-password routes rendered. No account credentials were submitted and no live account flow was tested |
+| Isolated SQL integration check | Passed in local PGlite | All three migrations executed; legacy backfill preserved the original JSON; simulated authenticated RPC load/save, RLS isolation, idempotent saves, invalid-data rollback, foreign-key rejection, and cascade deletion passed |
+| Supabase production migration | Passed | The farmer-number migration and normalized relational migration were applied in the Dashboard SQL Editor after the owner confirmed the existing records were examples |
+| Supabase production schema/security check | Passed | Ten relational tables exist with RLS and one owner policy each; ten foreign keys exist; authenticated RPC grants are present and anon grants absent |
+| Supabase production anonymous API check | Passed | All ten table endpoints returned zero rows to the anon key; unauthenticated RPC requests were rejected with HTTP 401 |
+| Supabase production RPC smoke check | Passed with rollback | Load returned collection counts and save completed as the `authenticated` database role using the existing account UUID as a simulated JWT claim; the save ran inside an explicit transaction that was rolled back |
 
 The production build reports a large JavaScript chunk warning (>500 kB minified). This is a performance optimization warning, not a build failure.
 
-No automated test files/framework were found in the repository. The checks above do not test live Supabase behavior.
+No automated test files/framework were found in the repository. The isolated SQL check used synthetic accounts and a local PostgreSQL-compatible PGlite engine with a minimal `auth.uid()`/role test setup; it is not a live Supabase migration or a substitute for testing Supabase Auth/JWT behavior.
 
 ### 9.2 Integration test plan and evidence status
 
@@ -318,12 +313,14 @@ The following scenarios should be run using a configured test Supabase project b
 | AUTH-01 | Register a new test account online | Supabase creates the Auth user; app follows configured email confirmation/session flow | Not verified against live project |
 | AUTH-02 | Sign in with valid and invalid credentials | Valid user reaches protected app; invalid credentials show an error | Not verified against live project |
 | AUTH-03 | Request password reset and follow link | Supabase email redirects to configured reset route | Not verified; requires mail and redirect configuration |
-| RLS-01 | Account A attempts to access account B's `farmer_data` row | RLS denies cross-account read/write | Not verified using two test accounts |
-| CRUD-01 | Create/update/delete each supported record category | Local display updates; successful sync survives reload | Not verified end-to-end |
-| SYNC-01 | Edit while offline, then reconnect | Local record remains; account snapshot uploads; pending cloud items transition to synced | Not verified in deployed browser |
-| SYNC-02 | Force a failed cloud request and retry | Failure is visible; local data is retained; later successful retry saves snapshot | Not verified against live project |
-| DATA-01 | Repeat synchronization of same snapshot | One `farmer_data` account row remains due to `user_id` upsert conflict key | Database behavior not integration-tested |
-| DATA-02 | Apply both migrations to an existing database with sample rows | Existing account rows remain; farmer numbers are backfilled and unique | Not verified on production-like database |
+| RLS-01 | Account A attempts to access account B's farmer and child records | RLS denies cross-account read/write; composite foreign keys reject cross-owner references | Production RLS/catalog and anon API checks passed; simulated authenticated isolation passed in PGlite; two real Supabase accounts not tested |
+| CRUD-01 | Create/update/delete each supported record category | Local display updates; successful sync survives reload | Local SQL routine tests passed; signed-in application CRUD/reload not tested |
+| SYNC-01 | Edit while offline, then reconnect | Local record remains; normalized records synchronize transactionally; pending cloud items transition to synced | Sync fixes build/lint passed; deployed-browser offline/reconnect not tested |
+| SYNC-02 | Force a failed cloud request and retry | Failure is visible; local data is retained; later successful retry saves snapshot | Local error paths reviewed; not exercised against a signed-in production app |
+| DATA-01 | Repeat synchronization of the same account dataset | Stable IDs upsert without duplicate relational records; save commits atomically | Idempotent/atomic behavior passed in local PGlite; production authenticated-role load/save smoke check passed with the save rolled back; actual app/JWT round-trip not tested |
+| DATA-02 | Apply all three migrations to an existing database with sample JSON records | Existing account rows and JSON snapshot remain; normalized rows are backfilled with relationships and farmer numbers remain unique | Production migrations applied; one existing account/profile remained, JSON archive retained, and farmer number verified unique/non-null |
+| FK-01 | Insert a child with a missing farmer/advance parent or another owner's parent ID | PostgreSQL foreign-key constraint rejects the invalid reference | Passed in local PGlite; production catalog confirms all ten foreign keys; live violating insert not attempted |
+| DELETE-01 | Delete a farmer or cash advance in test data | Related rows are cascade-deleted by foreign keys and no orphans remain | Farmer cascade passed in local PGlite; live production delete intentionally not attempted |
 | PWA-01 | Install app online, reopen offline | Cached app shell starts; previously cached local data is visible | Not verified on target mobile devices |
 | REPORT-01 | Compare seasonal totals with source records | Harvest income equals quantity × price; expense and budget totals match records | Not verified with a formal test dataset |
 | EMAIL-01 | Configure EmailJS and send a test email | Email arrives and errors are visible on failure | Not verified; provider configuration required |
@@ -352,16 +349,20 @@ For each manual test, record the date, build/deployment URL, browser/device, tes
 The repository-level build and lint checks listed in Section 9.1 have been run. Documentation content, architecture, and data mapping were prepared from the project source files. The following items require access to the project team's Supabase/hosting configuration or actual browser/device testing and must be completed by a project team member:
 
 - Confirm the official school name, final course label, adviser name, authors' names/IDs, and required title-page format.
-- Apply the additive SQL migrations in a test Supabase project and confirm that existing test rows remain intact and farmer numbers are unique.
+- Exercise registration, login, password reset, and relational load/save in the deployed app with a real test farmer account; no password was available or requested for this validation.
+- Use two real Supabase Auth accounts to validate cross-account read/write isolation; current live checks covered RLS configuration and anonymous access only.
+- Execute signed-in app CRUD for all record categories, then test refresh, offline edits, reconnect, failed-request retry, and PWA launch on target browsers/devices.
+- Production migrations were applied on 2026-11-01 through the SQL Editor. The Dashboard showed no backups; this proceeded only after the owner confirmed the single existing account/profile was example data. The original JSON snapshot was retained.
+- SQL Editor migrations are not recorded in the Supabase CLI migration-history table. Reconcile remote migration history before any future `supabase db push`; do not blindly rerun the backfill after users start changing relational data.
 - Configure and verify the Supabase Auth redirect URLs and registration/email-confirmation policy.
 - Execute AUTH-01 through AUTH-03 and RLS-01 in Section 9.2 using test accounts; record outcomes and evidence.
-- Execute CRUD-01, SYNC-01, SYNC-02, and DATA-01/02 using test data; record outcomes and evidence. Use only a disposable test project/account for destructive CRUD checks.
+- Execute CRUD-01, SYNC-01, SYNC-02, DATA-01/02, FK-01, and DELETE-01 using test data; record outcomes and evidence. Use only a disposable test project/account for destructive CRUD checks.
 - Execute PWA-01 on the target device/browser after an online installation; record offline/reconnect results.
 - Execute REPORT-01 and, if email is part of the demo, EMAIL-01/02; record outcomes and evidence.
 - Replace each “Not verified” status in the test table only after performing that specific test. Mark blocked items as blocked and state the reason; never infer a pass from build/lint success.
 - Open the final `.docx` in Microsoft Word and inspect its layout, page breaks, tables, diagrams, title page, and printed/PDF output.
 
-The authoring environment used for this documentation did not include a verified connection to the team's Supabase project, production hosting account, EmailJS provider account, or target mobile devices. No live database, RLS, email delivery, or deployed offline test result is asserted here.
+The Supabase Auth health endpoint and production relational schema are reachable. Migration, RLS policy configuration, table constraints, RPC privileges, anonymous API isolation, backfill, farmer-number integrity, and an authenticated-database-role RPC smoke check were checked. The RPC smoke check used a simulated JWT claim in the Dashboard SQL Editor, not a real browser session or signed Supabase JWT. Authenticated app CRUD, real two-account RLS, live email delivery, deployed PWA behavior, and offline/reconnect on target devices remain unverified.
 
 ## 10. Installation, Database Setup, and Deployment
 
@@ -382,8 +383,11 @@ Run the migrations in order in Supabase SQL Editor (or apply them using Supabase
 
 1. [`supabase/migrations/20261021000000_create_farmer_data.sql`](./supabase/migrations/20261021000000_create_farmer_data.sql)
 2. [`supabase/migrations/20261022000000_add_farmer_number.sql`](./supabase/migrations/20261022000000_add_farmer_number.sql)
+3. [`supabase/migrations/20261101000000_normalize_farmer_records.sql`](./supabase/migrations/20261101000000_normalize_farmer_records.sql)
 
-The migrations are additive and do not drop existing tables or farmer rows. Back up important project data before any production schema change as a general operational precaution. After migration, verify the `farmer_data` table, its RLS policy, and the unique `farmer_number` index in the Supabase dashboard.
+The third migration creates normalized relational tables, composite foreign keys, indexes, RLS policies, and authenticated load/save functions. It backfills records from the existing `farmer_data.data` JSON snapshot and retains that snapshot as a legacy archive. It does not drop tables, delete existing account rows, or overwrite the legacy JSON. The migration runs backfill and schema changes as one SQL script; if an existing JSON record violates a required constraint, the migration fails rather than silently skipping that record. Back up important project data before any production schema change. After migration, verify the normalized tables, their RLS policies and foreign keys, the RPC functions, and the unique `farmer_number` index in Supabase.
+
+For the configured production project, the first migration's table already existed; the farmer-number and relational migrations were applied via SQL Editor on 2026-11-01. The dashboard did not report a backup, and the owner confirmed the one existing account/profile was example data. SQL Editor application did not create a `supabase_migrations.schema_migrations` history table. Reconcile/repair CLI migration history before running `supabase db push` against this project; do not blindly rerun the JSON backfill migration after relational records have changed.
 
 ### 10.3 Supabase Auth settings
 
@@ -405,31 +409,28 @@ The repository includes Vercel and Netlify configuration, but no external deploy
 ## 11. Security and Data Protection
 
 - Supabase Auth UUIDs identify accounts; the human-readable farmer number is separate.
-- The database uses RLS to restrict each account row to the corresponding `auth.uid()`.
+- The database uses per-table RLS to restrict records to the corresponding `auth.uid()` owner and composite foreign keys to enforce valid same-owner relationships.
 - Never put a Supabase service-role key in the browser, committed `.env.local`, or deployment frontend variables.
 - The browser's local data is not encrypted by the app. Use a secured, trusted device and avoid shared browser profiles.
 - Treat backup files as private financial and personal information.
 - Apply SQL migrations only after reviewing the target Supabase project and migration order; this project's migrations do not drop table data.
-- RLS protects the cloud account row, but does not solve data-at-rest exposure on the device or multi-device write conflicts.
+- RLS protects cloud rows, but does not solve data-at-rest exposure on the device or multi-device write conflicts.
 - EmailJS browser configuration uses a public key; do not put private provider credentials in client settings.
 
 ## 12. Known Limitations and Future Improvements
 
 ### Current limitations
 
-1. **Single JSONB account snapshot:** convenient for preserving current behavior and backup/restore, but unsuitable for SQL reporting at record level, granular updates, or large datasets.
-2. **No nested foreign keys:** record relationships such as expense-to-farmer are represented in JSON and checked by application logic, not PostgreSQL constraints.
-3. **Snapshot overwrite risk:** concurrent clients can overwrite a newer account snapshot; no version check, merge, or conflict UI currently exists.
-4. **Browser storage:** localStorage is not encrypted and may be cleared or quota-limited.
-5. **Communication channels:** direct SMS and USSD/mobile-money services are not provided. Email delivery depends on EmailJS configuration and external provider availability.
-6. **Testing coverage:** build and lint are verified, but live Auth, RLS, migrations, PWA offline behavior, and full CRUD sync require manual integration tests.
-7. **Legacy import:** old MySQL data and unowned browser data are not automatically imported into Supabase.
+1. **Whole-account synchronization:** relational saves are transactional, but the client submits a whole account dataset; concurrent clients can overwrite newer state because no revision check, field-level merge, or conflict UI exists.
+2. **Legacy JSON archive:** the old `farmer_data.data` value is retained to protect existing data and support migration audit; it is not the active source used by the new application.
+3. **Browser storage:** localStorage is not encrypted and may be cleared or quota-limited.
+4. **Communication channels:** direct SMS and USSD/mobile-money services are not provided. Email delivery depends on EmailJS configuration and external provider availability.
+5. **Testing coverage:** build/lint, isolated relational tests, production schema/RLS configuration, anonymous isolation, and migration/backfill are verified. Authenticated app CRUD/sync, real two-account RLS, email delivery, PWA offline behavior, and multi-device conflict cases still require manual integration tests.
+6. **Legacy import:** old MySQL data and unowned browser data are not automatically imported into Supabase.
 
 ### Recommended next iteration
 
-- Introduce normalized tables through additive migrations, with a staged data migration and verification plan that preserves existing JSON records.
-- Add primary keys, foreign keys, useful indexes, constraints, and RLS policies for each table.
-- Use stable client-generated UUIDs and idempotent upserts for record-level synchronization.
+- Add field-level conflict detection and resolution to the transactional synchronization flow.
 - Add revision/version columns or another explicit conflict policy for multi-device edits.
 - Use IndexedDB for larger structured offline datasets and consider local encryption requirements.
 - Add automated unit tests for repositories/transformations, integration tests against a Supabase test project, and browser tests for offline/reconnect workflows.
@@ -437,9 +438,9 @@ The repository includes Vercel and Netlify configuration, but no external deploy
 
 ## 13. Conclusion
 
-AgriSync demonstrates a useful integration case: an installable React PWA, Supabase Auth, an RLS-protected PostgreSQL account row, a browser-persisted local store, and a synchronization queue. It supports the key project discussion areas—problem definition, architecture, data mapping, integration workflow, error behavior, testing plan, and deployment instructions.
+AgriSync demonstrates a useful integration case: an installable React PWA, Supabase Auth, RLS-protected normalized PostgreSQL tables with foreign-key relationships, a browser-persisted local store, and a synchronization queue. It supports the key project discussion areas—problem definition, architecture, data mapping, integration workflow, error behavior, testing plan, and deployment instructions.
 
-The project should be presented as an **offline-capable, account-snapshot integration prototype**, not as a fully normalized production backend or as a live multi-channel messaging platform. The documented build and lint checks pass, while live Supabase and offline integration scenarios remain to be verified by the project team.
+The relational migration is now applied to the configured Supabase project, and the production schema, RLS configuration, anonymous isolation, backfill, and farmer-number setup have been verified. This is not yet a claim of fully end-to-end operation: signed-in app CRUD, real-user Auth/RLS, and deployed offline/reconnect behavior still need testing. The system should not be described as having multi-device conflict resolution or direct SMS/USSD delivery.
 
 ## 14. References
 

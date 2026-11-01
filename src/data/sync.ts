@@ -51,10 +51,32 @@ export async function runSync(
   itemIds?: ReadonlySet<string>,
 ): Promise<number> {
   if (getState().syncing || !getState().online) return 0
+  if (triggeredBy === 'online-event') {
+    setState((state) => ({
+      outbox: state.outbox.map((item) => item.status === 'failed'
+        ? { ...item, status: 'pending', error: undefined }
+        : item),
+    }))
+  }
   const pending = getState().outbox.filter((item) =>
     (item.status === 'pending' || item.status === 'failed') && (!itemIds || itemIds.has(item.id)),
   )
   if (pending.length === 0) {
+    if (triggeredBy === 'online-event' && getState().auth.user) {
+      try {
+        await syncDatabaseNow()
+      } catch {
+        const log = logEntry('cloud-api', 1, 0, 1, triggeredBy)
+        setState({
+          syncing: false,
+          syncingPct: 100,
+          syncLogs: [...getState().syncLogs, log],
+          lastSyncAt: isoNow(),
+          db: getState().db,
+        })
+        return 0
+      }
+    }
     setState({ syncing: false, syncingPct: 100, lastSyncAt: isoNow() })
     return 0
   }
@@ -68,21 +90,25 @@ export async function runSync(
     byChannel.set(item.channel, list)
   }
 
+  let cloudSyncError: string | undefined
+  if (byChannel.has('cloud-api') || byChannel.has('gmail')) {
+    try {
+      await syncDatabaseNow()
+    } catch (error) {
+      cloudSyncError = error instanceof Error ? error.message : 'Supabase synchronization failed.'
+    }
+  }
+
   const logs: SyncLog[] = []
   let done = 0
   const total = pending.length
 
-  for (const [channel, items] of byChannel.entries()) {
+  const channels = [...byChannel.entries()].sort(([left], [right]) =>
+    left === right ? 0 : left === 'cloud-api' ? -1 : 1,
+  )
+  for (const [channel, items] of channels) {
     let synced = 0
     let failed = 0
-    let cloudSyncError: string | undefined
-    if (channel === 'cloud-api') {
-      try {
-        await syncDatabaseNow()
-      } catch (error) {
-        cloudSyncError = error instanceof Error ? error.message : 'Supabase synchronization failed.'
-      }
-    }
     for (const item of items) {
       updateItem(item.id, { status: 'syncing', attempts: item.attempts + 1 })
       done += 1
@@ -93,7 +119,9 @@ export async function runSync(
 
       if (channel === 'gmail' && item.action === 'notify') {
         const p = item.payload as { recipient?: string; subject?: string; body?: string }
-        if (mailConfigured(getState().settings.mail)) {
+        if (cloudSyncError) {
+          error = `Farm records were not saved. Email was not sent: ${cloudSyncError}`
+        } else if (mailConfigured(getState().settings.mail)) {
           try {
             await sendMail(getState().settings.mail, {
               to: p.recipient ?? '',

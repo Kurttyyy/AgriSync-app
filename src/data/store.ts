@@ -328,15 +328,21 @@ export async function syncDatabaseNow(): Promise<void> {
   const userId = state.auth.user?.id
   if (!userId) throw new Error('Sign in before syncing account records.')
   if (!state.online) throw new Error('You are offline. Your changes will sync when the connection returns.')
+  const db = state.db
+  const outboxIds = new Set(state.outbox
+    .filter((item) => item.channel === 'cloud-api' &&
+      (item.status === 'pending' || item.status === 'failed' || item.status === 'syncing'))
+    .map((item) => item.id))
   if (databaseSaveTimer) {
     clearTimeout(databaseSaveTimer)
     databaseSaveTimer = undefined
   }
-  await queueDatabaseSave(userId, state.db)
+  await queueDatabaseSave(userId, db)
   const syncedAt = new Date().toISOString()
   setState((current) => ({
     outbox: current.outbox.map((item) =>
-      item.channel === 'cloud-api' && (item.status === 'pending' || item.status === 'failed' || item.status === 'syncing')
+      outboxIds.has(item.id) &&
+      (item.status === 'pending' || item.status === 'failed' || item.status === 'syncing')
         ? { ...item, status: 'synced', syncedAt, error: undefined }
         : item,
     ),
@@ -460,7 +466,7 @@ export async function initializeAuth(): Promise<void> {
     if (error) throw error
     authStateSubscription?.unsubscribe()
     const { data: subscriptionData } = client.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT' && state.auth.authenticated) {
+      if (event === 'SIGNED_OUT' && state.auth.authenticated && state.online) {
         setState({
           auth: { user: null, authenticated: false },
           authReady: true,
@@ -501,7 +507,7 @@ export async function initializeAuth(): Promise<void> {
         authReady: true,
         databaseError: null,
       })
-      if ((!cloudDb && farmer) || keepLocalChanges) await saveFarmerData(session.user.id, db)
+      if ((!cloudDb && farmer) || keepLocalChanges) await syncDatabaseNow()
     } else {
       setState({
         auth: { user: null, authenticated: false },
@@ -563,7 +569,7 @@ export async function login(username: string, password: string): Promise<AuthUse
     databaseSavedAt: new Date().toISOString(),
     databaseSaveError: null,
   })
-  if ((!cloudDb && farmer) || keepLocalChanges) await saveFarmerData(data.user.id, db)
+  if ((!cloudDb && farmer) || keepLocalChanges) await syncDatabaseNow()
   return authenticatedUser
 }
 
@@ -627,7 +633,7 @@ export async function registerFarmerAccount(
   return { user: authenticatedUser, confirmationRequired: false }
 }
 
-export function linkFarmerProfile(farmerId: string): void {
+export async function linkFarmerProfile(farmerId: string): Promise<void> {
   const farmer = getState().db.farmers.find((item) => item.id === farmerId)
   const currentUser = getState().auth.user
   if (!farmer || !currentUser || currentUser.role !== 'farmer') {
@@ -639,9 +645,9 @@ export function linkFarmerProfile(farmerId: string): void {
   setState({
     auth: { user: updatedUser, authenticated: true },
   })
-  void requireSupabase().auth.updateUser({ data: { farmerId: firstFarmerId, farmerIds } })
-    .then(({ error }) => { if (error) throw error })
-    .catch(reportDatabaseError)
+  if (!state.online) return
+  const { error } = await requireSupabase().auth.updateUser({ data: { farmerId: firstFarmerId, farmerIds } })
+  if (error) throw error
 }
 
 export async function logout(): Promise<void> {
@@ -667,9 +673,6 @@ if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
     if (!getState().online) {
       setState({ online: true })
-      if (state.auth.user) {
-        void syncDatabaseNow().catch(reportDatabaseError)
-      }
     }
   })
   window.addEventListener('offline', () => {

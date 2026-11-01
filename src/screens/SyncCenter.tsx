@@ -136,7 +136,11 @@ export default function SyncCenter() {
             className="btn btn-primary btn-sm"
             disabled={!online || databaseSaveStatus === 'saving'}
             onClick={() => {
-              void syncDatabaseNow().catch(() => undefined)
+              void syncDatabaseNow()
+                .then(() => toast('Account records synchronized.'))
+                .catch((error: unknown) => {
+                  toast(error instanceof Error ? error.message : 'Unable to synchronize account records.', 'alert')
+                })
             }}
           >
             <IconRefresh width={15} height={15} /> Sync account records
