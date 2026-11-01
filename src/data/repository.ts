@@ -11,15 +11,12 @@ import type {
   Plot,
   Repayment,
   SeasonBudget,
-  SmsRecord,
   Visit,
 } from '../domain/types'
 import { uid, isoNow } from './util'
-import { mailConfigured } from './mail'
 import { cashAdvanceEmailDraft } from './emailDraft'
 
-function channelFor(entity: OutboxItem['entity'], preferred: ChannelId): ChannelId {
-  if (entity === 'visit' && preferred) return preferred
+function channelFor(entity: OutboxItem['entity']): ChannelId {
   const map: Record<OutboxItem['entity'], ChannelId> = {
     farmer: 'cloud-api',
     plot: 'cloud-api',
@@ -28,7 +25,6 @@ function channelFor(entity: OutboxItem['entity'], preferred: ChannelId): Channel
     expense: 'cloud-api',
     harvest: 'cloud-api',
     budget: 'cloud-api',
-    sms: 'sms-gateway',
     email: 'gmail',
   }
   return map[entity]
@@ -48,7 +44,7 @@ function enqueue(
     action,
     payload,
     status,
-    channel: channelFor(entity, getState().settings.preferredChannel),
+    channel: channelFor(entity),
     attempts: 0,
     createdAt: isoNow(),
   }
@@ -192,7 +188,7 @@ export function deleteVisit(id: string): void {
 }
 
 export function createCashAdvance(
-  data: Omit<CashAdvance, 'id' | 'repayments' | 'farmerMessages' | 'sms' | 'createdAt' | 'status'> & {
+  data: Omit<CashAdvance, 'id' | 'repayments' | 'farmerMessages' | 'createdAt' | 'status'> & {
     status?: CashAdvance['status']
     initialMessage?: string
   },
@@ -205,7 +201,6 @@ export function createCashAdvance(
     farmerMessages: data.initialMessage?.trim()
       ? [{ id: uid('note'), date: isoNow(), text: data.initialMessage.trim() }]
       : [],
-    sms: [],
     emails: [],
     createdAt: isoNow(),
   }
@@ -271,52 +266,6 @@ export function deleteFarmerMessage(cashAdvanceId: string, noteId: string): void
     throw new Error('The farmer note could not be found.')
   }
   const updated = { ...advance, farmerMessages: advance.farmerMessages.filter((item) => item.id !== noteId) }
-  setState((s) => ({
-    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
-  }))
-  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
-}
-
-export function notifyFarmer(cashAdvanceId: string, to: string, text: string): SmsRecord | null {
-  const inv = getState().db.cashAdvances.find((i) => i.id === cashAdvanceId)
-  if (!inv || !text.trim() || !to.trim()) return null
-  const record: SmsRecord = { id: uid('sms'), date: isoNow(), to: to.trim(), text: text.trim() }
-  const updated: CashAdvance = {
-    ...inv,
-    sms: [...(inv.sms ?? []), record],
-  }
-  setState((s) => ({
-    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((i) => (i.id === cashAdvanceId ? updated : i)) },
-  }))
-  enqueue('sms', cashAdvanceId, 'notify', { recipient: record.to, text: record.text, cashAdvanceId })
-  return record
-}
-
-export function deleteSmsRecord(cashAdvanceId: string, smsId: string): void {
-  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
-  if (!advance?.sms?.some((item) => item.id === smsId)) throw new Error('The SMS record could not be found.')
-  const updated = { ...advance, sms: advance.sms.filter((item) => item.id !== smsId) }
-  setState((s) => ({
-    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
-  }))
-  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
-}
-
-export function updateSmsRecord(
-  cashAdvanceId: string,
-  smsId: string,
-  patch: Omit<SmsRecord, 'id'>,
-): void {
-  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
-  if (!advance) throw new Error('The cash advance record could not be found.')
-  if (!advance.sms?.some((item) => item.id === smsId)) throw new Error('The SMS record could not be found.')
-  if (!patch.to.trim() || !patch.text.trim()) throw new Error('An SMS recipient and message are required.')
-  const updated = {
-    ...advance,
-    sms: advance.sms.map((item) => item.id === smsId
-      ? { ...patch, to: patch.to.trim(), text: patch.text.trim(), id: smsId }
-      : item),
-  }
   setState((s) => ({
     db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
   }))
@@ -467,7 +416,6 @@ export function deleteCashAdvance(id: string): void {
 }
 
 function autoEmailStatusUpdate(inv: CashAdvance): void {
-  if (!mailConfigured(getState().settings.mail)) return
   const farmer = getState().db.farmers.find((f) => f.id === inv.farmerId)
   if (!farmer?.email) return
   const { subject, body } = cashAdvanceEmailDraft(inv, farmer)

@@ -1,5 +1,4 @@
 import { fmtCashAdvanceDueDate, fmtMoney } from './format'
-import { ussdCode } from './util'
 import type { Farmer, CashAdvance } from '../domain/types'
 
 export function repaidPct(inv: CashAdvance): number {
@@ -17,6 +16,6 @@ export function cashAdvanceEmailDraft(inv: CashAdvance, farmer: Farmer): { subje
     `  Amount:    ${fmtMoney(inv.principal)}\n` +
     `  Repaid:    ${pct}%\n` +
     `  Due date:  ${fmtCashAdvanceDueDate(inv.dueDate, inv.dueAfterHarvest)}\n\n` +
-    `You can dial ${ussdCode(inv.id)} on your phone to check your balance, or reply to this email.`
+    'Please contact your farm coordinator if you have questions about this cash advance.'
   return { subject, body }
 }

@@ -4,7 +4,7 @@ import { CHANNELS, discardSynced, retryAllFailed, retryItem, runSync } from '../
 import { dbForUser, outboxForUser } from '../data/selectors'
 import { fmtRelative, fmtTimeOfDay } from '../data/format'
 import { Chip, confirmDialog, statusTone, toast } from '../components/kit'
-import { IconCheck, IconClock, IconCloudOff, IconMail, IconRefresh, IconSync, IconTrash } from '../components/icons'
+import { IconCheck, IconClock, IconCloudOff, IconRefresh, IconSync, IconTrash } from '../components/icons'
 import type { OutboxItem, SyncLog } from '../domain/types'
 import { makeAccountBackup, parseAccountBackup } from '../data/backup'
 
@@ -16,7 +16,6 @@ const ENTITY_LABEL: Record<OutboxItem['entity'], string> = {
   expense: 'Farm expense',
   harvest: 'Harvest record',
   budget: 'Season budget',
-  sms: 'SMS to farmer',
   email: 'Email to farmer',
 }
 
@@ -76,7 +75,7 @@ export default function SyncCenter() {
         <div>
           <div className="crumb">Account data and delivery tools</div>
           <h1 className="mt-2">Sync Center</h1>
-          <p className="text-sm mt-2">Account records sync directly with Supabase. Message-channel processing below is only a simulator.</p>
+          <p className="text-sm mt-2">Farm records synchronize with Supabase. Email notifications are sent only through a configured EmailJS account.</p>
         </div>
         <span className={`chip ${online ? 'tone-green' : 'tone-amber'}`}>
           <span className="dot" />
@@ -226,28 +225,13 @@ export default function SyncCenter() {
       <section className="card">
         {history.length === 0 ? (
           <p className="text-sm text-mute">
-            No syncs yet. Simulated sync attempts on this device will appear here.
+            No sync activity on this device yet.
           </p>
         ) : (
           history.slice(0, 10).map((l) => <LogRow key={l.id} l={l} />)
         )}
       </section>
 
-      <div className="seg-title mt-5">Simulated delivery channels (not connected to Supabase sync)</div>
-      <section className="card">
-        {(Object.keys(CHANNELS) as (keyof typeof CHANNELS)[]).map((id) => (
-          <div className="feed-item" key={id}>
-            <span className="feed-icon" style={{ color: 'var(--brand)' }}>
-              {id === 'sms-gateway' ? <IconClock width={16} height={16} /> : id === 'gmail' ? <IconMail width={16} height={16} /> : <IconRefresh width={16} height={16} />}
-            </span>
-            <div className="feed-body grow">
-              <div className="feed-title">{CHANNELS[id].label}</div>
-              <div className="feed-sub">{CHANNELS[id].desc}</div>
-            </div>
-            <Chip tone="tone-grey" dot>{CHANNELS[id].short}</Chip>
-          </div>
-        ))}
-      </section>
     </>
   )
 }
@@ -267,7 +251,7 @@ function LogRow({ l }: { l: SyncLog }) {
           {l.failed > 0 && <Chip tone="tone-red">{l.failed} failed</Chip>}
         </div>
         <div className="row-sub mono">
-          {l.items} item{l.items === 1 ? '' : 's'} · {l.synced} {l.channel === 'cloud-api' ? 'synchronized with Supabase' : 'processed by simulator'} · {l.triggeredBy}
+          {l.items} item{l.items === 1 ? '' : 's'} · {l.synced} {l.channel === 'cloud-api' ? 'synchronized with Supabase' : 'sent through EmailJS'} · {l.triggeredBy}
         </div>
       </div>
       <span className="text-xs text-mute" style={{ whiteSpace: 'nowrap' }}>

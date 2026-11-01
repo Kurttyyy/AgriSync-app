@@ -33,7 +33,7 @@ Cloud records are protected by Supabase Auth and RLS. Offline browser records us
 
 All farm records, including harvests and budgets, are stored in the account's JSON `data` field. The `farmer_data.user_id` remains the Supabase Auth UUID and `farmer_number` is a separate sequential numeric account number. This implementation preserves the existing single-row design and legacy data, but it does not provide normalized per-entity SQL tables, database-level foreign keys between farm record types, or safe multi-device conflict resolution. Treat one device as the editor at a time; when changes are queued locally they are retained and uploaded on reconnect.
 
-The Sync Status page has a **Supabase account sync** control for saving actual farm records and a separate message-channel simulator. The **Process queue** action synchronizes queued farm data with Supabase; SMS, USSD, and email simulator actions do not deliver messages and are not evidence of message delivery.
+The Sync Center synchronizes farm records with Supabase. Cash-advance email updates are sent through EmailJS only when its service ID, template ID, and public key are configured in **Settings**; unconfigured or failed email attempts remain marked as failed and are never reported as delivered. The farmer contact action opens the device's SMS application to compose a message; AgriSync itself does not send SMS or provide USSD/mobile-money services. Historical SMS data is retained in existing account records.
 
 Password recovery requires the deployed domain and `/reset-password` redirect URL to be allowed in Supabase Authentication settings. For email-confirmation registration, configure the corresponding confirmation redirect URLs as well.
 

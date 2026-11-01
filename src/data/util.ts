@@ -49,15 +49,6 @@ export function riceSeasonsForDb(db: Pick<DB, 'farmers' | 'plots' | 'visits' | '
     .sort((a, b) => a.localeCompare(b))
 }
 
-export function ussdCode(id: string): string {
-  const seed = [...id].reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  return `*134*${1000 + (seed % 9000)}#`
-}
-
-export function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 export function monthKey(iso: string): string {
   return iso.slice(0, 7)
 }

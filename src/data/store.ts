@@ -25,7 +25,6 @@ const KEYS = {
 const DEFAULT_SETTINGS: AppSettings = {
   region: '',
   autoSync: true,
-  preferredChannel: 'cloud-api',
   lastFullSync: new Date().toISOString(),
   mail: {
     serviceId: '',
@@ -126,6 +125,31 @@ const migratedCashAdvances = !Array.isArray(loadedDb.cashAdvances) && Array.isAr
   : []
 const loadedOutbox = load<unknown>(KEYS.outbox, [])
 const loadedSyncLogs = load<unknown>(KEYS.logs, [])
+
+function isSupportedOutboxItem(item: unknown): item is OutboxItem {
+  if (!item || typeof item !== 'object') return false
+  const record = item as Record<string, unknown>
+  const entity = record.entity
+  const channel = record.channel
+  const action = record.action
+  const validEntity = ['farmer', 'plot', 'visit', 'cashAdvance', 'expense', 'harvest', 'budget', 'email'].includes(String(entity))
+  const validChannel = channel === 'cloud-api' || channel === 'gmail'
+  const validAction = action === 'create' || action === 'update' || action === 'delete' || action === 'notify'
+  return validEntity && validChannel && validAction &&
+    (channel === 'cloud-api' ? entity !== 'email' : entity === 'email' && action === 'notify')
+}
+
+function normalizeSyncLogs(logs: unknown): SyncLog[] {
+  if (!Array.isArray(logs)) return []
+  return logs.filter((log): log is SyncLog => {
+    if (!log || typeof log !== 'object') return false
+    const record = log as Record<string, unknown>
+    return (record.channel === 'cloud-api' || record.channel === 'gmail') &&
+      typeof record.id === 'string' &&
+      typeof record.startedAt === 'string' &&
+      typeof record.finishedAt === 'string'
+  })
+}
 const normalizedExpenses = Array.isArray(loadedDb.expenses)
   ? loadedDb.expenses.map(normalizeLegacyExpense)
   : seed.db.expenses
@@ -151,8 +175,8 @@ let state: AppState = {
     harvests: Array.isArray(loadedDb.harvests) ? loadedDb.harvests : [],
     budgets: Array.isArray(loadedDb.budgets) ? loadedDb.budgets : [],
   },
-  outbox: Array.isArray(loadedOutbox) ? loadedOutbox : [],
-  syncLogs: Array.isArray(loadedSyncLogs) ? loadedSyncLogs : [],
+  outbox: Array.isArray(loadedOutbox) ? loadedOutbox.filter(isSupportedOutboxItem) : [],
+  syncLogs: normalizeSyncLogs(loadedSyncLogs),
   settings: loadSettings(),
   auth: savedAuth.authenticated && signedInUser
     ? { user: publicUser(signedInUser), authenticated: true }
@@ -213,9 +237,14 @@ if (JSON.stringify(farmerOnlyDb) !== JSON.stringify(state.db)) {
   state = { ...state, db: farmerOnlyDb }
   save(KEYS.db, farmerOnlyDb)
 }
-if (farmerOnlyOutbox.length !== state.outbox.length) {
+if (farmerOnlyOutbox.length !== state.outbox.length ||
+  !Array.isArray(loadedOutbox) ||
+  farmerOnlyOutbox.length !== loadedOutbox.length) {
   state = { ...state, outbox: farmerOnlyOutbox }
   save(KEYS.outbox, farmerOnlyOutbox)
+}
+if (state.syncLogs.length !== (Array.isArray(loadedSyncLogs) ? loadedSyncLogs.length : 0)) {
+  save(KEYS.logs, state.syncLogs)
 }
 const authenticatedFarmerIds = state.auth.user?.farmerIds?.length
   ? state.auth.user.farmerIds

@@ -1,54 +1,22 @@
 import { getState, setState } from './store'
 import type { ChannelId, OutboxItem, SyncLog, SyncOutcome } from '../domain/types'
-import { delay, isoNow, uid } from './util'
+import { isoNow, uid } from './util'
 import { mailConfigured, sendMail } from './mail'
 import { syncDatabaseNow } from './store'
 
-export const CHANNELS: Record<
-  ChannelId,
-  { label: string; short: string; desc: string; latency: [number, number]; failRate: number; tone: string }
-> = {
+export const CHANNELS: Record<ChannelId, { label: string; short: string; desc: string; tone: string }> = {
   'cloud-api': {
     label: 'Rice Farm Expenses Cloud API',
     short: 'Cloud API',
     desc: 'Supabase account data synchronization',
-    latency: [350, 1100],
-    failRate: 0,
     tone: 'green',
   },
-  'sms-gateway': {
-    label: 'SMS Gateway',
-    short: 'SMS',
-    desc: 'Simulated SMS delivery; no message is sent',
-    latency: [800, 2000],
-    failRate: 0.12,
-    tone: 'amber',
-  },
-  'ussd-gateway': {
-    label: 'USSD Gateway',
-    short: 'USSD',
-    desc: 'Simulated USSD delivery; no mobile-money transaction is made',
-    latency: [600, 1500],
-    failRate: 0.08,
-    tone: 'gold',
-  },
   gmail: {
-    label: 'Gmail',
-    short: 'Gmail',
+    label: 'EmailJS',
+    short: 'Email',
     desc: 'Email delivery is available only when EmailJS is configured',
-    latency: [500, 1400],
-    failRate: 0.1,
     tone: 'brand',
   },
-}
-
-function latencyFor(channel: ChannelId): number {
-  const [a, b] = CHANNELS[channel].latency
-  return a + Math.random() * (b - a)
-}
-
-function failFor(channel: ChannelId): boolean {
-  return Math.random() < CHANNELS[channel].failRate
 }
 
 function updateItem(id: string, patch: Partial<OutboxItem>): void {
@@ -117,11 +85,10 @@ export async function runSync(
     }
     for (const item of items) {
       updateItem(item.id, { status: 'syncing', attempts: item.attempts + 1 })
-      if (channel !== 'cloud-api') await delay(latencyFor(channel))
       done += 1
       setState({ syncingPct: Math.round((done / total) * 100) })
 
-      let ok = channel === 'cloud-api' ? !cloudSyncError : !failFor(channel)
+      let ok = channel === 'cloud-api' ? !cloudSyncError : false
       let error: string | undefined = cloudSyncError
 
       if (channel === 'gmail' && item.action === 'notify') {
@@ -134,13 +101,13 @@ export async function runSync(
               body: p.body ?? '',
             })
             ok = true
-            await delay(300)
           } catch (err) {
             ok = false
-            error = err instanceof Error ? err.message : 'Gmail delivery failed'
+            error = err instanceof Error ? err.message : 'EmailJS delivery failed'
           }
         } else {
-          ok = true
+          ok = false
+          error = 'Email notifications are not configured. Add your EmailJS service ID, template ID, and public key in Settings.'
         }
       }
 
@@ -152,16 +119,14 @@ export async function runSync(
         failed += 1
         updateItem(item.id, {
           status: 'failed',
-          error: error ?? `The ${CHANNELS[channel].short} simulator reported a failure. Retry to try again.`,
+          error: error ?? `The ${CHANNELS[channel].short} operation failed. Retry after resolving the error.`,
         })
       }
     }
     logs.push(logEntry(channel, items.length, synced, failed, triggeredBy))
   }
 
-  const remaining = getState().outbox.filter(
-    (i) => i.status === 'pending' || i.status === 'syncing' || i.status === 'failed',
-  ).length
+  const retryable = getState().outbox.filter((item) => item.status === 'pending')
 
   setState({
     syncing: false,
@@ -171,9 +136,9 @@ export async function runSync(
     db: getState().db,
   })
 
-  if (getState().settings.autoSync && remaining > 0) {
+  if (getState().settings.autoSync && retryable.length > 0) {
     setTimeout(() => {
-      if (getState().online) void runSync('interval', itemIds)
+      if (getState().online) void runSync('interval', new Set(retryable.map((item) => item.id)))
     }, 2500)
   }
 

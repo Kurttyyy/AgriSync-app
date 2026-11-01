@@ -1,6 +1,6 @@
 export type ID = string
 
-export type ChannelId = 'cloud-api' | 'sms-gateway' | 'ussd-gateway' | 'gmail'
+export type ChannelId = 'cloud-api' | 'gmail'
 
 export type Health = 'good' | 'fair' | 'poor'
 export type Risk = 'low' | 'medium' | 'high'
@@ -92,13 +92,6 @@ export interface FarmerNote {
   text: string
 }
 
-export interface SmsRecord {
-  id: ID
-  date: string
-  to: string
-  text: string
-}
-
 export interface EmailRecord {
   id: ID
   date: string
@@ -120,7 +113,6 @@ export interface CashAdvance {
   status: 'active' | 'repaid' | 'overdue' | 'defaulted'
   repayments: Repayment[]
   farmerMessages?: FarmerNote[]
-  sms?: SmsRecord[]
   emails?: EmailRecord[]
   createdAt: string
 }
@@ -158,7 +150,7 @@ export type OutboxStatus = 'pending' | 'syncing' | 'synced' | 'failed'
 
 export interface OutboxItem {
   id: ID
-  entity: 'farmer' | 'plot' | 'visit' | 'cashAdvance' | 'expense' | 'harvest' | 'budget' | 'sms' | 'email'
+  entity: 'farmer' | 'plot' | 'visit' | 'cashAdvance' | 'expense' | 'harvest' | 'budget' | 'email'
   entityId: ID
   action: 'create' | 'update' | 'delete' | 'notify'
   payload: unknown
@@ -187,7 +179,6 @@ export interface SyncLog {
 export interface AppSettings {
   region: string
   autoSync: boolean
-  preferredChannel: ChannelId
   lastFullSync: string | null
   mail: {
     serviceId: string

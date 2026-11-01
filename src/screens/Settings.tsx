@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { IconRefresh, IconSync } from '../components/icons'
-import { toast } from '../components/kit'
+import { Field, toast } from '../components/kit'
 import { dbForUser, outboxForUser } from '../data/selectors'
 import { runSync } from '../data/sync'
-import { useAppState } from '../data/store'
+import { setState, useAppState } from '../data/store'
 import { loadAuthenticatedFarmerProfile, type AuthenticatedFarmerProfile } from '../data/supabase'
 
 export default function Settings() {
@@ -12,6 +12,7 @@ export default function Settings() {
   const allOutbox = useAppState((state) => state.outbox)
   const online = useAppState((state) => state.online)
   const syncing = useAppState((state) => state.syncing)
+  const settings = useAppState((state) => state.settings)
   const userDb = dbForUser(allDb, user)
   const outbox = outboxForUser(allOutbox, userDb)
   const pending = outbox.filter((item) => item.status === 'pending' || item.status === 'failed').length
@@ -19,6 +20,7 @@ export default function Settings() {
     profile: AuthenticatedFarmerProfile | null
     error: string | null
   } | null>(null)
+  const [mailDraft, setMailDraft] = useState(settings.mail)
 
   useEffect(() => {
     let active = true
@@ -38,6 +40,23 @@ export default function Settings() {
       active = false
     }
   }, [])
+
+  function saveEmailSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const mail = {
+      serviceId: mailDraft.serviceId.trim(),
+      templateId: mailDraft.templateId.trim(),
+      publicKey: mailDraft.publicKey.trim(),
+    }
+    const configuredCount = Object.values(mail).filter(Boolean).length
+    if (configuredCount !== 0 && configuredCount !== Object.keys(mail).length) {
+      toast('Enter all three EmailJS values, or clear all three to disable email notifications.', 'alert')
+      return
+    }
+    setState((state) => ({ settings: { ...state.settings, mail } }))
+    setMailDraft(mail)
+    toast(configuredCount ? 'EmailJS settings saved on this device.' : 'Email notifications disabled.')
+  }
 
   return (
     <>
@@ -87,7 +106,7 @@ export default function Settings() {
             className="btn btn-primary"
             type="button"
             disabled={syncing || !online}
-            title={online ? 'Synchronize queued records and process simulated delivery channels' : 'Connect to synchronize queued records'}
+            title={online ? 'Synchronize queued farm records and send configured email notifications' : 'Connect to synchronize queued records'}
             onClick={() => {
               void runSync('manual', new Set(outbox.map((item) => item.id)))
                 .then((count) => toast(count > 0 ? `${count} record${count === 1 ? '' : 's'} processed` : 'Nothing to process'))
@@ -100,6 +119,29 @@ export default function Settings() {
             {syncing ? 'Processing…' : !online ? 'Offline' : pending > 0 ? `Sync ${pending}` : 'Sync now'}
           </button>
         </div>
+      </section>
+
+      <section className="card mt-4" aria-labelledby="email-settings-title">
+        <div className="card-title" id="email-settings-title">Email notifications (EmailJS)</div>
+        <p className="text-sm text-mute mt-2">
+          EmailJS is optional. Configure a service, template, and public key to send cash-advance email updates.
+          Without configuration, queued email attempts will be marked failed and will not be reported as sent.
+        </p>
+        <form className="form-grid mt-3" onSubmit={saveEmailSettings}>
+          <Field label="EmailJS service ID">
+            <input className="input" value={mailDraft.serviceId} onChange={(event) => setMailDraft({ ...mailDraft, serviceId: event.target.value })} autoComplete="off" />
+          </Field>
+          <Field label="EmailJS template ID">
+            <input className="input" value={mailDraft.templateId} onChange={(event) => setMailDraft({ ...mailDraft, templateId: event.target.value })} autoComplete="off" />
+          </Field>
+          <Field label="EmailJS public key">
+            <input className="input" value={mailDraft.publicKey} onChange={(event) => setMailDraft({ ...mailDraft, publicKey: event.target.value })} autoComplete="off" />
+          </Field>
+          <div className="flex gap-md">
+            <button className="btn btn-primary" type="submit">Save email settings</button>
+            <span className="text-xs text-mute">{settings.mail.serviceId && settings.mail.templateId && settings.mail.publicKey ? 'Configured on this device' : 'Not configured'}</span>
+          </div>
+        </form>
       </section>
     </>
   )
