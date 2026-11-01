@@ -14,6 +14,8 @@ const ENTITY_LABEL: Record<OutboxItem['entity'], string> = {
   visit: 'Field visit',
   cashAdvance: 'Cash advance record',
   expense: 'Farm expense',
+  harvest: 'Harvest record',
+  budget: 'Season budget',
   sms: 'SMS to farmer',
   email: 'Email to farmer',
 }
@@ -161,7 +163,7 @@ export default function SyncCenter() {
               return
             }
             void runSync('manual', new Set(outbox.map((item) => item.id))).then((n) =>
-              toast(n > 0 ? `${n} record${n === 1 ? '' : 's'} processed by the simulator` : 'Nothing to process'),
+              toast(n > 0 ? `${n} queued item${n === 1 ? '' : 's'} synchronized or processed` : 'Nothing to process'),
             )
           }}
         >
@@ -190,7 +192,7 @@ export default function SyncCenter() {
       {queue.length > 0 && (
         <section className="card mt-5">
           <div className="card-row">
-            <span className="card-title">Simulated message-channel queue</span>
+            <span className="card-title">Pending synchronization and delivery queue</span>
             <span className="text-mute text-sm">{queue.length} on device</span>
           </div>
           {queue.map((o) => (
@@ -265,7 +267,7 @@ function LogRow({ l }: { l: SyncLog }) {
           {l.failed > 0 && <Chip tone="tone-red">{l.failed} failed</Chip>}
         </div>
         <div className="row-sub mono">
-          {l.items} item{l.items === 1 ? '' : 's'} · {l.synced} processed by simulator · {l.triggeredBy}
+          {l.items} item{l.items === 1 ? '' : 's'} · {l.synced} {l.channel === 'cloud-api' ? 'synchronized with Supabase' : 'processed by simulator'} · {l.triggeredBy}
         </div>
       </div>
       <span className="text-xs text-mute" style={{ whiteSpace: 'nowrap' }}>

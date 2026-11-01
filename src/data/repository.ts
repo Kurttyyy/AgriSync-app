@@ -21,11 +21,13 @@ import { cashAdvanceEmailDraft } from './emailDraft'
 function channelFor(entity: OutboxItem['entity'], preferred: ChannelId): ChannelId {
   if (entity === 'visit' && preferred) return preferred
   const map: Record<OutboxItem['entity'], ChannelId> = {
-    farmer: 'sms-gateway',
+    farmer: 'cloud-api',
     plot: 'cloud-api',
     visit: 'cloud-api',
-    cashAdvance: 'ussd-gateway',
+    cashAdvance: 'cloud-api',
     expense: 'cloud-api',
+    harvest: 'cloud-api',
+    budget: 'cloud-api',
     sms: 'sms-gateway',
     email: 'gmail',
   }
@@ -98,15 +100,25 @@ export function startNewRiceSeason(farmerId: string, season: string): void {
 
   const plantedDate = isoNow()
   const db = getState().db
+  const updatedFarmer = { ...farmer, activeSeason: name, updatedAt: plantedDate }
+  const updatedPlots = db.plots.filter((plot) => plot.farmerId === farmerId).map((plot) => ({
+    ...plot,
+    season: name,
+    plantedDate,
+    expectedYieldT: 0,
+    health: 'good' as const,
+  }))
   setState({
     db: {
       ...db,
-      farmers: db.farmers.map((item) => item.id === farmerId ? { ...item, activeSeason: name, updatedAt: plantedDate } : item),
+      farmers: db.farmers.map((item) => item.id === farmerId ? updatedFarmer : item),
       plots: db.plots.map((plot) => plot.farmerId === farmerId
-        ? { ...plot, season: name, plantedDate, expectedYieldT: 0, health: 'good' }
+        ? updatedPlots.find((updated) => updated.id === plot.id) ?? plot
         : plot),
     },
   })
+  enqueue('farmer', farmerId, 'update', updatedFarmer)
+  updatedPlots.forEach((plot) => enqueue('plot', plot.id, 'update', plot))
 }
 
 export function deleteFarmer(id: string): void {
@@ -135,6 +147,21 @@ export function createPlot(
   return plot
 }
 
+export function updatePlot(id: string, patch: Omit<Plot, 'id'>): void {
+  const current = getState().db.plots.find((item) => item.id === id)
+  if (!current) throw new Error('The plot record could not be found.')
+  const updated = { ...current, ...patch }
+  setState((s) => ({ db: { ...s.db, plots: s.db.plots.map((item) => item.id === id ? updated : item) } }))
+  enqueue('plot', id, 'update', updated)
+}
+
+export function deletePlot(id: string): void {
+  const current = getState().db.plots.find((item) => item.id === id)
+  if (!current) throw new Error('The plot record could not be found.')
+  setState((s) => ({ db: { ...s.db, plots: s.db.plots.filter((item) => item.id !== id) } }))
+  enqueue('plot', id, 'delete', { id })
+}
+
 export function createVisit(
   data: Omit<Visit, 'id' | 'offline' | 'createdAt'>,
 ): Visit {
@@ -147,6 +174,21 @@ export function createVisit(
   setState((s) => ({ db: { ...s.db, visits: [visit, ...s.db.visits] } }))
   enqueue('visit', visit.id, 'create', visit)
   return visit
+}
+
+export function updateVisit(id: string, patch: Omit<Visit, 'id' | 'createdAt'>): void {
+  const current = getState().db.visits.find((item) => item.id === id)
+  if (!current) throw new Error('The visit record could not be found.')
+  const updated = { ...current, ...patch }
+  setState((s) => ({ db: { ...s.db, visits: s.db.visits.map((item) => item.id === id ? updated : item) } }))
+  enqueue('visit', id, 'update', updated)
+}
+
+export function deleteVisit(id: string): void {
+  const current = getState().db.visits.find((item) => item.id === id)
+  if (!current) throw new Error('The visit record could not be found.')
+  setState((s) => ({ db: { ...s.db, visits: s.db.visits.filter((item) => item.id !== id) } }))
+  enqueue('visit', id, 'delete', { id })
 }
 
 export function createCashAdvance(
@@ -172,6 +214,25 @@ export function createCashAdvance(
   return cashAdvance
 }
 
+export function updateCashAdvance(
+  id: string,
+  patch: Partial<Omit<CashAdvance, 'id' | 'createdAt'>>,
+): void {
+  const current = getState().db.cashAdvances.find((item) => item.id === id)
+  if (!current) throw new Error('The cash advance record could not be found.')
+  const updated = { ...current, ...patch }
+  if (!Number.isFinite(updated.principal) || updated.principal <= 0) {
+    throw new RangeError('Cash advance principal must be greater than zero.')
+  }
+  if (totalRepaid(updated) > updated.principal) {
+    throw new RangeError('Cash advance principal cannot be less than the amount already repaid.')
+  }
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === id ? updated : item) },
+  }))
+  enqueue('cashAdvance', id, 'update', updated)
+}
+
 export function addFarmerMessage(cashAdvanceId: string, text: string): void {
   const inv = getState().db.cashAdvances.find((i) => i.id === cashAdvanceId)
   if (!inv || !text.trim()) return
@@ -182,6 +243,36 @@ export function addFarmerMessage(cashAdvanceId: string, text: string): void {
   }
   setState((s) => ({
     db: { ...s.db, cashAdvances: s.db.cashAdvances.map((i) => (i.id === cashAdvanceId ? updated : i)) },
+  }))
+  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
+}
+
+export function updateFarmerMessage(cashAdvanceId: string, noteId: string, text: string): void {
+  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
+  if (!advance) throw new Error('The cash advance record could not be found.')
+  const note = advance.farmerMessages?.find((item) => item.id === noteId)
+  if (!note) throw new Error('The farmer note could not be found.')
+  if (!text.trim()) throw new Error('A farmer note cannot be empty.')
+  const updated = {
+    ...advance,
+    farmerMessages: advance.farmerMessages?.map((item) =>
+      item.id === noteId ? { ...item, text: text.trim() } : item,
+    ),
+  }
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
+  }))
+  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
+}
+
+export function deleteFarmerMessage(cashAdvanceId: string, noteId: string): void {
+  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
+  if (!advance?.farmerMessages?.some((item) => item.id === noteId)) {
+    throw new Error('The farmer note could not be found.')
+  }
+  const updated = { ...advance, farmerMessages: advance.farmerMessages.filter((item) => item.id !== noteId) }
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
   }))
   enqueue('cashAdvance', cashAdvanceId, 'update', updated)
 }
@@ -199,6 +290,76 @@ export function notifyFarmer(cashAdvanceId: string, to: string, text: string): S
   }))
   enqueue('sms', cashAdvanceId, 'notify', { recipient: record.to, text: record.text, cashAdvanceId })
   return record
+}
+
+export function deleteSmsRecord(cashAdvanceId: string, smsId: string): void {
+  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
+  if (!advance?.sms?.some((item) => item.id === smsId)) throw new Error('The SMS record could not be found.')
+  const updated = { ...advance, sms: advance.sms.filter((item) => item.id !== smsId) }
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
+  }))
+  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
+}
+
+export function updateSmsRecord(
+  cashAdvanceId: string,
+  smsId: string,
+  patch: Omit<SmsRecord, 'id'>,
+): void {
+  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
+  if (!advance) throw new Error('The cash advance record could not be found.')
+  if (!advance.sms?.some((item) => item.id === smsId)) throw new Error('The SMS record could not be found.')
+  if (!patch.to.trim() || !patch.text.trim()) throw new Error('An SMS recipient and message are required.')
+  const updated = {
+    ...advance,
+    sms: advance.sms.map((item) => item.id === smsId
+      ? { ...patch, to: patch.to.trim(), text: patch.text.trim(), id: smsId }
+      : item),
+  }
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
+  }))
+  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
+}
+
+export function deleteEmailRecord(cashAdvanceId: string, emailId: string): void {
+  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
+  if (!advance?.emails?.some((item) => item.id === emailId)) throw new Error('The email record could not be found.')
+  const updated = { ...advance, emails: advance.emails.filter((item) => item.id !== emailId) }
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
+  }))
+  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
+}
+
+export function updateEmailRecord(
+  cashAdvanceId: string,
+  emailId: string,
+  patch: Omit<EmailRecord, 'id'>,
+): void {
+  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
+  if (!advance) throw new Error('The cash advance record could not be found.')
+  if (!advance.emails?.some((item) => item.id === emailId)) throw new Error('The email record could not be found.')
+  if (!patch.to.trim() || !patch.subject.trim() || !patch.body.trim()) {
+    throw new Error('An email recipient, subject, and message are required.')
+  }
+  const updated = {
+    ...advance,
+    emails: advance.emails.map((item) => item.id === emailId
+      ? {
+        ...patch,
+        to: patch.to.trim(),
+        subject: patch.subject.trim(),
+        body: patch.body.trim(),
+        id: emailId,
+      }
+      : item),
+  }
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
+  }))
+  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
 }
 
 export function sendCashAdvanceEmail(
@@ -250,6 +411,61 @@ export function addRepayment(cashAdvanceId: string, data: Omit<Repayment, 'id' |
   autoEmailStatusUpdate(updated)
 }
 
+export function updateRepayment(
+  cashAdvanceId: string,
+  repaymentId: string,
+  patch: Omit<Repayment, 'id' | 'cashAdvanceId'>,
+): void {
+  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
+  if (!advance) throw new Error('The cash advance record could not be found.')
+  const current = advance.repayments.find((item) => item.id === repaymentId)
+  if (!current) throw new Error('The repayment record could not be found.')
+  if (!Number.isFinite(patch.amount) || patch.amount <= 0) {
+    throw new RangeError('Repayment amount must be greater than zero.')
+  }
+  const totalWithoutCurrent = totalRepaid(advance) - current.amount
+  if (patch.amount > Math.max(0, advance.principal - totalWithoutCurrent)) {
+    throw new RangeError('Repayment cannot exceed the remaining cash advance balance.')
+  }
+  const repayments = advance.repayments.map((item) => item.id === repaymentId ? { ...item, ...patch } : item)
+  const repaidTotal = repayments.reduce((sum, item) => sum + item.amount, 0)
+  const updated: CashAdvance = {
+    ...advance,
+    repayments,
+    status: repaidTotal >= advance.principal
+      ? 'repaid'
+      : advance.status === 'repaid' ? 'active' : advance.status,
+  }
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
+  }))
+  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
+}
+
+export function deleteRepayment(cashAdvanceId: string, repaymentId: string): void {
+  const advance = getState().db.cashAdvances.find((item) => item.id === cashAdvanceId)
+  if (!advance?.repayments.some((item) => item.id === repaymentId)) {
+    throw new Error('The repayment record could not be found.')
+  }
+  const repayments = advance.repayments.filter((item) => item.id !== repaymentId)
+  const updated: CashAdvance = {
+    ...advance,
+    repayments,
+    status: advance.status === 'repaid' ? 'active' : advance.status,
+  }
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.map((item) => item.id === cashAdvanceId ? updated : item) },
+  }))
+  enqueue('cashAdvance', cashAdvanceId, 'update', updated)
+}
+
+export function deleteCashAdvance(id: string): void {
+  const current = getState().db.cashAdvances.find((item) => item.id === id)
+  if (!current) throw new Error('The cash advance record could not be found.')
+  setState((s) => ({ db: { ...s.db, cashAdvances: s.db.cashAdvances.filter((item) => item.id !== id) } }))
+  enqueue('cashAdvance', id, 'delete', { id })
+}
+
 function autoEmailStatusUpdate(inv: CashAdvance): void {
   if (!mailConfigured(getState().settings.mail)) return
   const farmer = getState().db.farmers.find((f) => f.id === inv.farmerId)
@@ -287,12 +503,29 @@ export function deleteExpense(id: string): void {
   const current = getState().db.expenses.find((item) => item.id === id)
   if (!current) throw new Error('The expense record could not be found.')
   setState((s) => ({ db: { ...s.db, expenses: s.db.expenses.filter((item) => item.id !== id) } }))
+  enqueue('expense', id, 'delete', { id })
 }
 
 export function createHarvest(data: Omit<Harvest, 'id' | 'createdAt'>): Harvest {
   const harvest: Harvest = { ...data, id: uid('harvest'), createdAt: isoNow() }
   setState((s) => ({ db: { ...s.db, harvests: [harvest, ...s.db.harvests] } }))
+  enqueue('harvest', harvest.id, 'create', harvest)
   return harvest
+}
+
+export function updateHarvest(id: string, patch: Omit<Harvest, 'id' | 'createdAt'>): void {
+  const current = getState().db.harvests.find((item) => item.id === id)
+  if (!current) throw new Error('The harvest record could not be found.')
+  const updated = { ...current, ...patch }
+  setState((s) => ({ db: { ...s.db, harvests: s.db.harvests.map((item) => item.id === id ? updated : item) } }))
+  enqueue('harvest', id, 'update', updated)
+}
+
+export function deleteHarvest(id: string): void {
+  const current = getState().db.harvests.find((item) => item.id === id)
+  if (!current) throw new Error('The harvest record could not be found.')
+  setState((s) => ({ db: { ...s.db, harvests: s.db.harvests.filter((item) => item.id !== id) } }))
+  enqueue('harvest', id, 'delete', { id })
 }
 
 export function setSeasonBudget(data: Omit<SeasonBudget, 'id' | 'updatedAt'>): SeasonBudget {
@@ -312,5 +545,13 @@ export function setSeasonBudget(data: Omit<SeasonBudget, 'id' | 'updatedAt'>): S
         : [budget, ...s.db.budgets],
     },
   }))
+  enqueue('budget', budget.id, current ? 'update' : 'create', budget)
   return budget
+}
+
+export function deleteSeasonBudget(id: string): void {
+  const current = getState().db.budgets.find((item) => item.id === id)
+  if (!current) throw new Error('The season budget could not be found.')
+  setState((s) => ({ db: { ...s.db, budgets: s.db.budgets.filter((item) => item.id !== id) } }))
+  enqueue('budget', id, 'delete', { id })
 }

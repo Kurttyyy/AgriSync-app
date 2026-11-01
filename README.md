@@ -22,7 +22,7 @@ AgriSync is a farmer-facing rice farm record and expense monitoring application 
 ## Database setup
 
 1. Create a Supabase project.
-2. In the Supabase SQL Editor, run [`supabase/migrations/20261021000000_create_farmer_data.sql`](./supabase/migrations/20261021000000_create_farmer_data.sql). This creates a per-account data table protected by row-level security.
+2. In the Supabase SQL Editor, run the migration files in timestamp order: [`20261021000000_create_farmer_data.sql`](./supabase/migrations/20261021000000_create_farmer_data.sql), then [`20261022000000_add_farmer_number.sql`](./supabase/migrations/20261022000000_add_farmer_number.sql). Both use additive DDL; they do not drop tables or delete existing farmer data. The first creates the per-account data table and RLS policy; the second adds a unique sequential account farmer number.
 3. In the project root beside `package.json`, copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your Supabase project settings. The publishable/anon key is intended for browser use; never put a `service_role` key in this app.
 4. Restart the Vite dev server. Configure the same two environment variables in your deployment provider before building.
 5. In Supabase Authentication settings, configure the allowed site/redirect URLs for local development and your deployed domain. If email confirmation is enabled, new users must confirm their email before signing in.
@@ -31,9 +31,9 @@ Authentication is handled by Supabase Auth. Each signed-in account can access on
 
 Cloud records are protected by Supabase Auth and RLS. Offline browser records use the browser's local storage and are not encrypted by this app; use a trusted, device-locked browser profile and sign out only after syncing when using a shared device.
 
-Harvest and budget records are stored alongside the existing records in the account's JSON `data` field; the existing table migration remains sufficient. This single-row JSON design is simple to back up and restore, but is less suitable for concurrent edits from multiple devices and detailed SQL reporting than normalized per-entity tables.
+All farm records, including harvests and budgets, are stored in the account's JSON `data` field. The `farmer_data.user_id` remains the Supabase Auth UUID and `farmer_number` is a separate sequential numeric account number. This implementation preserves the existing single-row design and legacy data, but it does not provide normalized per-entity SQL tables, database-level foreign keys between farm record types, or safe multi-device conflict resolution. Treat one device as the editor at a time; when changes are queued locally they are retained and uploaded on reconnect.
 
-The Sync Status page has a **Supabase account sync** control for saving actual farm records and a separate message-channel simulator. SMS, USSD, and email simulator actions do not deliver messages and are not evidence of a successful database sync.
+The Sync Status page has a **Supabase account sync** control for saving actual farm records and a separate message-channel simulator. The **Process queue** action synchronizes queued farm data with Supabase; SMS, USSD, and email simulator actions do not deliver messages and are not evidence of message delivery.
 
 Password recovery requires the deployed domain and `/reset-password` redirect URL to be allowed in Supabase Authentication settings. For email-confirmation registration, configure the corresponding confirmation redirect URLs as well.
 

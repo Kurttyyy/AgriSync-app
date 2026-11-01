@@ -10,16 +10,8 @@ export interface PortfolioRow {
 }
 
 export function outboxForUser(outbox: OutboxItem[], db: DB): OutboxItem[] {
-  const ownedRecordIds = new Set([
-    ...db.farmers.map((farmer) => farmer.id),
-    ...db.plots.map((plot) => plot.id),
-    ...db.visits.map((visit) => visit.id),
-    ...db.cashAdvances.map((advance) => advance.id),
-    ...db.expenses.map((expense) => expense.id),
-    ...db.harvests.map((harvest) => harvest.id),
-    ...db.budgets.map((budget) => budget.id),
-  ])
-  return outbox.filter((item) => ownedRecordIds.has(item.entityId))
+  if (db.farmers.length === 0) return []
+  return outbox
 }
 
 export function cashAdvanceStatus(advance: CashAdvance, now = Date.now()): CashAdvance['status'] {

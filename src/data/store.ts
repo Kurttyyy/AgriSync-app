@@ -206,7 +206,9 @@ const ownedRecordIds = new Set([
   ...farmerOnlyDb.harvests.map((harvest) => harvest.id),
   ...farmerOnlyDb.budgets.map((budget) => budget.id),
 ])
-const farmerOnlyOutbox = state.outbox.filter((item) => ownedRecordIds.has(item.entityId))
+const farmerOnlyOutbox = localOwnerId
+  ? state.outbox
+  : state.outbox.filter((item) => ownedRecordIds.has(item.entityId))
 if (JSON.stringify(farmerOnlyDb) !== JSON.stringify(state.db)) {
   state = { ...state, db: farmerOnlyDb }
   save(KEYS.db, farmerOnlyDb)
@@ -256,7 +258,9 @@ let databaseSaveQueue: Promise<void> = Promise.resolve()
 
 function queueDatabaseSave(userId: string, db: DB): Promise<void> {
   const saveRequest = databaseSaveQueue.then(async () => {
-    if (state.auth.user?.id !== userId) return
+    if (state.auth.user?.id !== userId) {
+      throw new Error('The active account changed before synchronization could finish.')
+    }
     if (!state.online) {
       setState({ databaseSaveStatus: 'pending' })
       return
@@ -300,6 +304,14 @@ export async function syncDatabaseNow(): Promise<void> {
     databaseSaveTimer = undefined
   }
   await queueDatabaseSave(userId, state.db)
+  const syncedAt = new Date().toISOString()
+  setState((current) => ({
+    outbox: current.outbox.map((item) =>
+      item.channel === 'cloud-api' && (item.status === 'pending' || item.status === 'failed' || item.status === 'syncing')
+        ? { ...item, status: 'synced', syncedAt, error: undefined }
+        : item,
+    ),
+  }))
 }
 
 export async function replaceAccountDatabase(db: DB): Promise<void> {
@@ -402,6 +414,8 @@ function publicUser(user: User): AuthUser {
   return safeUser
 }
 
+let authStateSubscription: { unsubscribe: () => void } | null = null
+
 export async function initializeAuth(): Promise<void> {
   if (!supabaseConfigured) {
     setState({
@@ -415,6 +429,17 @@ export async function initializeAuth(): Promise<void> {
     const client = requireSupabase()
     const { data, error } = await client.auth.getSession()
     if (error) throw error
+    authStateSubscription?.unsubscribe()
+    const { data: subscriptionData } = client.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT' && state.auth.authenticated) {
+        setState({
+          auth: { user: null, authenticated: false },
+          authReady: true,
+          databaseError: 'Your session has ended. Sign in again to access your account.',
+        })
+      }
+    })
+    authStateSubscription = subscriptionData.subscription
     const session = data.session
     if (session) {
       let cloudDb: DB | null
@@ -434,16 +459,20 @@ export async function initializeAuth(): Promise<void> {
       }
       preserveLegacyLocalData()
       const farmer = cloudDb ? null : farmerFromMetadata(session.user.user_metadata?.farmerProfile)
-      const db = cloudDb ?? { ...emptyDatabase(), ...(farmer ? { farmers: [farmer] } : {}) }
+      const keepLocalChanges = localOwnerId === session.user.id &&
+        state.outbox.some((item) => item.status === 'pending' || item.status === 'failed' || item.status === 'syncing')
+      const db = keepLocalChanges
+        ? state.db
+        : cloudDb ?? { ...emptyDatabase(), ...(farmer ? { farmers: [farmer] } : {}) }
       const authUser = authUserFromSupabase(session.user, db.farmers.map((item) => item.id))
       setState({
         auth: { user: authUser, authenticated: true },
         db,
-        outbox: [],
+        outbox: keepLocalChanges ? state.outbox : [],
         authReady: true,
         databaseError: null,
       })
-      if (!cloudDb && farmer) await saveFarmerData(session.user.id, db)
+      if ((!cloudDb && farmer) || keepLocalChanges) await saveFarmerData(session.user.id, db)
     } else {
       setState({
         auth: { user: null, authenticated: false },
@@ -489,19 +518,23 @@ export async function login(username: string, password: string): Promise<AuthUse
   const cloudDb = await loadFarmerData(data.user.id)
   preserveLegacyLocalData()
   const farmer = cloudDb ? null : farmerFromMetadata(data.user.user_metadata?.farmerProfile)
-  const db = cloudDb ?? { ...emptyDatabase(), ...(farmer ? { farmers: [farmer] } : {}) }
+  const keepLocalChanges = localOwnerId === data.user.id &&
+    state.outbox.some((item) => item.status === 'pending' || item.status === 'failed' || item.status === 'syncing')
+  const db = keepLocalChanges
+    ? state.db
+    : cloudDb ?? { ...emptyDatabase(), ...(farmer ? { farmers: [farmer] } : {}) }
   const authenticatedUser = authUserFromSupabase(data.user, db.farmers.map((item) => item.id))
   setState({
     auth: { user: authenticatedUser, authenticated: true },
     db,
-    outbox: [],
+    outbox: keepLocalChanges ? state.outbox : [],
     authReady: true,
     databaseError: null,
     databaseSaveStatus: 'saved',
     databaseSavedAt: new Date().toISOString(),
     databaseSaveError: null,
   })
-  if (!cloudDb && farmer) await saveFarmerData(data.user.id, db)
+  if ((!cloudDb && farmer) || keepLocalChanges) await saveFarmerData(data.user.id, db)
   return authenticatedUser
 }
 
@@ -603,7 +636,12 @@ export async function logout(): Promise<void> {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
-    if (!getState().online) setState({ online: true })
+    if (!getState().online) {
+      setState({ online: true })
+      if (state.auth.user) {
+        void syncDatabaseNow().catch(reportDatabaseError)
+      }
+    }
   })
   window.addEventListener('offline', () => {
     if (getState().online) setState({ online: false })

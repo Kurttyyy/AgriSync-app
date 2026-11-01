@@ -77,7 +77,7 @@ export default function Settings() {
 
       <section className="card mt-4" aria-labelledby="app-controls-title">
         <div className="card-title" id="app-controls-title">App controls</div>
-        <p className="text-sm text-mute mt-2">Refresh the app or run the message-channel simulator for queued records.</p>
+        <p className="text-sm text-mute mt-2">Refresh the app or synchronize queued farm records with Supabase.</p>
         <div className="flex gap-md wrap mt-3">
           <button className="btn btn-ghost" type="button" onClick={() => window.location.reload()}>
             <IconRefresh width={16} height={16} />
@@ -87,17 +87,17 @@ export default function Settings() {
             className="btn btn-primary"
             type="button"
             disabled={syncing || !online}
-            title={online ? 'Run simulated message-channel processing' : 'Connect to run the message simulator'}
+            title={online ? 'Synchronize queued records and process simulated delivery channels' : 'Connect to synchronize queued records'}
             onClick={() => {
               void runSync('manual', new Set(outbox.map((item) => item.id)))
                 .then((count) => toast(count > 0 ? `${count} record${count === 1 ? '' : 's'} processed` : 'Nothing to process'))
                 .catch((error: unknown) => {
-                  toast(error instanceof Error ? error.message : 'Unable to run the message simulator.', 'alert')
+                  toast(error instanceof Error ? error.message : 'Unable to synchronize queued records.', 'alert')
                 })
             }}
           >
             {syncing ? <IconSync className="spin" width={16} height={16} /> : <IconSync width={16} height={16} />}
-            {syncing ? 'Processing…' : !online ? 'Offline' : pending > 0 ? `Simulate ${pending}` : 'Simulator'}
+            {syncing ? 'Processing…' : !online ? 'Offline' : pending > 0 ? `Sync ${pending}` : 'Sync now'}
           </button>
         </div>
       </section>

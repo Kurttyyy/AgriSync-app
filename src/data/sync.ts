@@ -2,6 +2,7 @@ import { getState, setState } from './store'
 import type { ChannelId, OutboxItem, SyncLog, SyncOutcome } from '../domain/types'
 import { delay, isoNow, uid } from './util'
 import { mailConfigured, sendMail } from './mail'
+import { syncDatabaseNow } from './store'
 
 export const CHANNELS: Record<
   ChannelId,
@@ -10,9 +11,9 @@ export const CHANNELS: Record<
   'cloud-api': {
     label: 'Rice Farm Expenses Cloud API',
     short: 'Cloud API',
-    desc: 'Simulated Cloud API delivery; no live server is connected',
+    desc: 'Supabase account data synchronization',
     latency: [350, 1100],
-    failRate: 0.05,
+    failRate: 0,
     tone: 'green',
   },
   'sms-gateway': {
@@ -106,14 +107,22 @@ export async function runSync(
   for (const [channel, items] of byChannel.entries()) {
     let synced = 0
     let failed = 0
+    let cloudSyncError: string | undefined
+    if (channel === 'cloud-api') {
+      try {
+        await syncDatabaseNow()
+      } catch (error) {
+        cloudSyncError = error instanceof Error ? error.message : 'Supabase synchronization failed.'
+      }
+    }
     for (const item of items) {
       updateItem(item.id, { status: 'syncing', attempts: item.attempts + 1 })
-      await delay(latencyFor(channel))
+      if (channel !== 'cloud-api') await delay(latencyFor(channel))
       done += 1
       setState({ syncingPct: Math.round((done / total) * 100) })
 
-      let ok = !failFor(channel)
-      let error: string | undefined
+      let ok = channel === 'cloud-api' ? !cloudSyncError : !failFor(channel)
+      let error: string | undefined = cloudSyncError
 
       if (channel === 'gmail' && item.action === 'notify') {
         const p = item.payload as { recipient?: string; subject?: string; body?: string }

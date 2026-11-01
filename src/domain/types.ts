@@ -158,7 +158,7 @@ export type OutboxStatus = 'pending' | 'syncing' | 'synced' | 'failed'
 
 export interface OutboxItem {
   id: ID
-  entity: 'farmer' | 'plot' | 'visit' | 'cashAdvance' | 'expense' | 'sms' | 'email'
+  entity: 'farmer' | 'plot' | 'visit' | 'cashAdvance' | 'expense' | 'harvest' | 'budget' | 'sms' | 'email'
   entityId: ID
   action: 'create' | 'update' | 'delete' | 'notify'
   payload: unknown

@@ -34,13 +34,13 @@ export async function loadAuthenticatedFarmerProfile(): Promise<AuthenticatedFar
 
   const { data, error } = await client
     .from('farmer_data')
-    .select('farmer_id')
+    .select('farmer_number')
     .eq('user_id', authData.user.id)
     .maybeSingle()
   if (error) throw error
 
-  const farmerId = typeof data?.farmer_id === 'number' && Number.isSafeInteger(data.farmer_id)
-    ? data.farmer_id
+  const farmerId = typeof data?.farmer_number === 'number' && Number.isSafeInteger(data.farmer_number)
+    ? data.farmer_number
     : null
   const name = authData.user.user_metadata?.name
 
