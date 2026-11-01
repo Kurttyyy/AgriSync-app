@@ -1,6 +1,6 @@
 import { useRef, type ChangeEvent } from 'react'
 import { useAppState, replaceAccountDatabase, syncDatabaseNow } from '../data/store'
-import { CHANNELS, discardSynced, retryAllFailed, retryItem, runSync } from '../data/sync'
+import { CHANNELS, discardOrphanedEmailNotification, discardSynced, retryAllFailed, retryItem, runSync } from '../data/sync'
 import { dbForUser, outboxForUser } from '../data/selectors'
 import { fmtRelative, fmtTimeOfDay } from '../data/format'
 import { Chip, confirmDialog, statusTone, toast } from '../components/kit'
@@ -219,6 +219,20 @@ export default function SyncCenter() {
                 <button className="btn btn-sm btn-ghost" onClick={() => retryItem(o.id)}>
                   <IconRefresh width={14} height={14} /> Retry
                 </button>
+              )}
+              {o.status === 'failed' && o.entity === 'email' && !db.cashAdvances.some((advance) => advance.id === o.entityId) && (
+                <button className="btn btn-sm btn-danger-ghost" onClick={() => confirmDialog(
+                  'Discard orphaned email notification?',
+                  'Its cash advance has been deleted, so this unsent email cannot be delivered. Discarding removes only this device queue item.',
+                  () => {
+                    try {
+                      discardOrphanedEmailNotification(o.id)
+                      toast('Orphaned email notification discarded.')
+                    } catch (error) {
+                      toast(error instanceof Error ? error.message : 'Could not discard the email notification.', 'alert')
+                    }
+                  },
+                )}>Discard</button>
               )}
             </div>
           ))}

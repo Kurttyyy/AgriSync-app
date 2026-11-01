@@ -1,11 +1,18 @@
 import { useState, type FormEvent } from 'react'
 import { useAppState } from '../data/store'
-import { createHarvest, setSeasonBudget, totalRepaid } from '../data/repository'
+import {
+  createHarvest,
+  deleteHarvest,
+  deleteSeasonBudget,
+  setSeasonBudget,
+  totalRepaid,
+  updateHarvest,
+} from '../data/repository'
 import { dbForUser } from '../data/selectors'
-import { fmtDate, fmtFinanceMoney, fmtNum } from '../data/format'
+import { dateInputValue, fmtDate, fmtFinanceMoney, fmtNum } from '../data/format'
 import { riceSeasonForFarmer, riceSeasonsForDb } from '../data/util'
-import { Button, Field, toast } from '../components/kit'
-import type { DB } from '../domain/types'
+import { Button, confirmDialog, Field, toast } from '../components/kit'
+import type { DB, Harvest, SeasonBudget } from '../domain/types'
 
 export default function FarmFinance() {
   const allDb = useAppState((state) => state.db)
@@ -15,8 +22,10 @@ export default function FarmFinance() {
   const [harvestDate, setHarvestDate] = useState(todayInput())
   const [quantityKg, setQuantityKg] = useState('')
   const [pricePerKg, setPricePerKg] = useState('')
+  const [editingHarvest, setEditingHarvest] = useState<Harvest | null>(null)
   const [budgetFarmerId, setBudgetFarmerId] = useState(db.farmers[0]?.id ?? '')
   const [budgetAmount, setBudgetAmount] = useState('')
+  const [editingBudget, setEditingBudget] = useState<SeasonBudget | null>(null)
   const [seasonFilter, setSeasonFilter] = useState('')
 
   const seasons = riceSeasonsForDb(db)
@@ -54,16 +63,26 @@ export default function FarmFinance() {
       return
     }
     const selectedFarmer = db.farmers.find((farmer) => farmer.id === farmerId)
-    createHarvest({
+    const data = {
       farmerId,
       date: new Date(`${harvestDate}T12:00:00`).toISOString(),
-      season: riceSeasonForFarmer(selectedFarmer, db.plots),
+      season: editingHarvest?.farmerId === farmerId
+        ? editingHarvest.season
+        : riceSeasonForFarmer(selectedFarmer, db.plots),
       quantityKg: kg,
       pricePerKg: price,
-    })
-    setQuantityKg('')
-    setPricePerKg('')
-    toast('Rice harvest and income saved.')
+    }
+    try {
+      if (editingHarvest) updateHarvest(editingHarvest.id, data)
+      else createHarvest(data)
+      setEditingHarvest(null)
+      setQuantityKg('')
+      setPricePerKg('')
+      setHarvestDate(todayInput())
+      toast(editingHarvest ? 'Rice harvest updated.' : 'Rice harvest and income saved.')
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not save the harvest.', 'alert')
+    }
   }
 
   function saveBudget(event: FormEvent) {
@@ -78,9 +97,18 @@ export default function FarmFinance() {
       return
     }
     const selectedFarmer = db.farmers.find((farmer) => farmer.id === budgetFarmerId)
-    setSeasonBudget({ farmerId: budgetFarmerId, season: riceSeasonForFarmer(selectedFarmer, db.plots), amount })
-    setBudgetAmount('')
-    toast('Season budget saved. A matching farmer and season budget is replaced.')
+    try {
+      setSeasonBudget({
+        farmerId: editingBudget?.farmerId ?? budgetFarmerId,
+        season: editingBudget?.season ?? riceSeasonForFarmer(selectedFarmer, db.plots),
+        amount,
+      })
+      setEditingBudget(null)
+      setBudgetAmount('')
+      toast('Season budget saved. A matching farmer and season budget is replaced.')
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not save the season budget.', 'alert')
+    }
   }
 
   return (
@@ -137,8 +165,10 @@ export default function FarmFinance() {
                 <Field label="Harvest date">
                   <input className="input" type="date" value={harvestDate} onChange={(event) => setHarvestDate(event.target.value)} required />
                 </Field>
-                <Field label="Current rice season">
-                  <input className="input" value={riceSeasonForFarmer(db.farmers.find((farmer) => farmer.id === farmerId), db.plots)} readOnly />
+                <Field label={editingHarvest ? 'Rice season (preserved)' : 'Current rice season'}>
+                  <input className="input" value={editingHarvest?.farmerId === farmerId
+                    ? editingHarvest.season
+                    : riceSeasonForFarmer(db.farmers.find((farmer) => farmer.id === farmerId), db.plots)} readOnly />
                 </Field>
                 <Field label="Harvested weight (kg)">
                   <input className="input" type="number" min="0.01" step="0.01" value={quantityKg} onChange={(event) => setQuantityKg(event.target.value)} required />
@@ -150,27 +180,42 @@ export default function FarmFinance() {
               <p className="text-sm text-mute mb-3">
                 Estimated income: {fmtFinanceMoney((Number(quantityKg) || 0) * (Number(pricePerKg) || 0))}
               </p>
-              <Button type="submit">Save harvest</Button>
+              <div className="flex gap-sm">
+                <Button type="submit">{editingHarvest ? 'Save changes' : 'Save harvest'}</Button>
+                {editingHarvest && <button type="button" className="btn btn-ghost" onClick={() => {
+                  setEditingHarvest(null)
+                  setQuantityKg('')
+                  setPricePerKg('')
+                  setHarvestDate(todayInput())
+                }}>Cancel</button>}
+              </div>
             </form>
           </section>
           <section className="card">
             <h2 className="card-title mb-3">Set season budget</h2>
             <form onSubmit={saveBudget}>
               <Field label="Farmer profile">
-                <select className="select" value={budgetFarmerId} onChange={(event) => {
+                <select className="select" value={budgetFarmerId} disabled={Boolean(editingBudget)} onChange={(event) => {
                   setBudgetFarmerId(event.target.value)
                 }} required>
                   {db.farmers.map((farmer) => <option key={farmer.id} value={farmer.id}>{farmer.name}</option>)}
                 </select>
               </Field>
               <Field label="Current rice season">
-                <input className="input" value={riceSeasonForFarmer(db.farmers.find((farmer) => farmer.id === budgetFarmerId), db.plots)} readOnly />
+                <input className="input" value={editingBudget?.season ?? riceSeasonForFarmer(db.farmers.find((farmer) => farmer.id === budgetFarmerId), db.plots)} readOnly />
               </Field>
               <Field label="Season budget (₱)">
                 <input className="input" type="number" min="0.01" step="0.01" value={budgetAmount} onChange={(event) => setBudgetAmount(event.target.value)} required />
               </Field>
               <p className="text-sm text-mute mb-3">Saving an existing farmer + season updates its budget.</p>
-              <Button type="submit">Save budget</Button>
+              <div className="flex gap-sm">
+                <Button type="submit">{editingBudget ? 'Save changes' : 'Save budget'}</Button>
+                {editingBudget && <button type="button" className="btn btn-ghost" onClick={() => {
+                  setEditingBudget(null)
+                  setBudgetAmount('')
+                  setBudgetFarmerId(db.farmers[0]?.id ?? '')
+                }}>Cancel</button>}
+              </div>
             </form>
           </section>
         </div>
@@ -224,6 +269,78 @@ export default function FarmFinance() {
                   <div className="feed-sub">{fmtDate(harvest.date)} · {fmtNum(harvest.quantityKg, 2)} kg × {fmtFinanceMoney(harvest.pricePerKg)}/kg</div>
                 </div>
                 <strong>{fmtFinanceMoney(harvest.quantityKg * harvest.pricePerKg)}</strong>
+                <span className="flex gap-sm">
+                  <button className="btn btn-ghost btn-sm" onClick={() => {
+                    setEditingHarvest(harvest)
+                    setFarmerId(harvest.farmerId)
+                    setHarvestDate(dateInputValue(harvest.date))
+                    setQuantityKg(String(harvest.quantityKg))
+                    setPricePerKg(String(harvest.pricePerKg))
+                    window.scrollTo({ top: 0, behavior: 'smooth' })
+                  }}>Edit</button>
+                  <button className="btn btn-danger-ghost btn-sm" onClick={() => confirmDialog(
+                    'Delete harvest record?',
+                    'This harvest and its income will be removed from this account and its next database sync.',
+                    () => {
+                      try {
+                        deleteHarvest(harvest.id)
+                        if (editingHarvest?.id === harvest.id) {
+                          setEditingHarvest(null)
+                          setQuantityKg('')
+                          setPricePerKg('')
+                          setHarvestDate(todayInput())
+                        }
+                        toast('Harvest record deleted.')
+                      } catch (error) {
+                        toast(error instanceof Error ? error.message : 'Could not delete the harvest.', 'alert')
+                      }
+                    },
+                  )}>Delete</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="card mt-4">
+        <h2 className="card-title">Season budgets</h2>
+        {financeDb.budgets.length === 0 ? (
+          <p className="text-sm text-mute mt-3">No budgets recorded for this view.</p>
+        ) : (
+          <div className="feed mt-2">
+            {[...financeDb.budgets].sort((a, b) => a.season.localeCompare(b.season)).map((budget) => (
+              <div className="feed-item" key={budget.id}>
+                <div className="feed-body grow">
+                  <div className="feed-title">{db.farmers.find((farmer) => farmer.id === budget.farmerId)?.name ?? 'Farmer'} · {budget.season}</div>
+                  <div className="feed-sub">Updated {fmtDate(budget.updatedAt)}</div>
+                </div>
+                <strong>{fmtFinanceMoney(budget.amount)}</strong>
+                <span className="flex gap-sm">
+                  <button className="btn btn-ghost btn-sm" onClick={() => {
+                    setEditingBudget(budget)
+                    setBudgetFarmerId(budget.farmerId)
+                    setBudgetAmount(String(budget.amount))
+                    window.scrollTo({ top: 0, behavior: 'smooth' })
+                  }}>Edit</button>
+                  <button className="btn btn-danger-ghost btn-sm" onClick={() => confirmDialog(
+                    'Delete season budget?',
+                    'This budget will be removed from this account and its next database sync.',
+                    () => {
+                      try {
+                        deleteSeasonBudget(budget.id)
+                        if (editingBudget?.id === budget.id) {
+                          setEditingBudget(null)
+                          setBudgetAmount('')
+                          setBudgetFarmerId(db.farmers[0]?.id ?? '')
+                        }
+                        toast('Season budget deleted.')
+                      } catch (error) {
+                        toast(error instanceof Error ? error.message : 'Could not delete the season budget.', 'alert')
+                      }
+                    },
+                  )}>Delete</button>
+                </span>
               </div>
             ))}
           </div>
@@ -288,15 +405,15 @@ function exportFinanceReport(db: DB): void {
   const rows: (string | number)[][] = [
     ['Type', 'Date', 'Farmer', 'Rice season', 'Details', 'Quantity (kg)', 'Price per kg', 'Amount (PHP)'],
     ...db.expenses.map((expense) => [
-      'Expense', expense.date.slice(0, 10), farmerName(expense.farmerId), expense.season,
+      'Expense', dateInputValue(expense.date), farmerName(expense.farmerId), expense.season,
       `${expense.category}${expense.description ? ` — ${expense.description}` : ''}`, '', '', expense.amount,
     ]),
     ...db.cashAdvances.map((advance) => [
-      'Cash advance', advance.disbursedDate.slice(0, 10), farmerName(advance.farmerId), advance.season?.trim() || 'Unassigned season',
+      'Cash advance', dateInputValue(advance.disbursedDate), farmerName(advance.farmerId), advance.season?.trim() || 'Unassigned season',
       advance.label, '', '', advance.principal,
     ]),
     ...db.harvests.map((harvest) => [
-      'Harvest income', harvest.date.slice(0, 10), farmerName(harvest.farmerId), harvest.season,
+      'Harvest income', dateInputValue(harvest.date), farmerName(harvest.farmerId), harvest.season,
       'Rice harvest', harvest.quantityKg, harvest.pricePerKg, harvest.quantityKg * harvest.pricePerKg,
     ]),
     ...db.budgets.map((budget) => [

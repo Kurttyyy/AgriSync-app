@@ -293,7 +293,9 @@ EmailJS delivery is external-provider functionality and has not been verified wi
 | `npm run build` | Passed | TypeScript project build and Vite production bundle complete |
 | `npm run lint` | Passed | ESLint reports no lint errors |
 | `git diff --check` | Passed | No whitespace errors in the code changes checked |
-| Local browser route smoke check | Passed | Vite served the app; login, registration, forgot-password, and reset-password routes rendered. No account credentials were submitted and no live account flow was tested |
+| Local browser route smoke check | Passed | Vite served the app; login, registration, forgot-password, and reset-password routes rendered. No account credentials were submitted during this route-only check |
+| Owner-reported Auth checks | Owner confirmed passed; not independently reproduced in this session | On 2026-11-01, the owner reported successfully testing registration and password reset. Account creation, confirmation email, reset email, and reset-link flow were not independently exercised by this assistant |
+| Signed-in Supabase browser smoke test | Passed for the exercised local-app flows | On 2026-11-01, the owner signed in to the local app with a disposable test account. A temporary expense was created, edited, explicitly synchronized, confirmed after reload, and deleted. Offline expense creation and reconnect sync were also confirmed after reload. The signed-in UI create/edit/delete flows were also exercised for plots, visits, cash advances, repayments, harvests, and season budgets; these records were synchronized, removed, and confirmed absent after reload. Two-account isolation and target-device PWA behavior were not covered |
 | Isolated SQL integration check | Passed in local PGlite | All three migrations executed; legacy backfill preserved the original JSON; simulated authenticated RPC load/save, RLS isolation, idempotent saves, invalid-data rollback, foreign-key rejection, and cascade deletion passed |
 | Supabase production migration | Passed | The farmer-number migration and normalized relational migration were applied in the Dashboard SQL Editor after the owner confirmed the existing records were examples |
 | Supabase production schema/security check | Passed | Ten relational tables exist with RLS and one owner policy each; ten foreign keys exist; authenticated RPC grants are present and anon grants absent |
@@ -310,21 +312,21 @@ The following scenarios should be run using a configured test Supabase project b
 
 | ID | Scenario | Expected result | Current evidence |
 |---|---|---|---|
-| AUTH-01 | Register a new test account online | Supabase creates the Auth user; app follows configured email confirmation/session flow | Not verified against live project |
-| AUTH-02 | Sign in with valid and invalid credentials | Valid user reaches protected app; invalid credentials show an error | Not verified against live project |
-| AUTH-03 | Request password reset and follow link | Supabase email redirects to configured reset route | Not verified; requires mail and redirect configuration |
+| AUTH-01 | Register a new test account online | Supabase creates the Auth user; app follows configured email confirmation/session flow | Owner reported registration works. Not independently reproduced in this session; confirmation-email delivery details were not captured |
+| AUTH-02 | Sign in with valid and invalid credentials | Valid user reaches protected app; invalid credentials show an error | Valid sign-in to the local app with the owner's disposable account was observed; invalid-credential behavior not tested |
+| AUTH-03 | Request password reset and follow link | Supabase email redirects to configured reset route | Owner reported password reset works. Not independently reproduced in this session; email/link evidence was not captured |
 | RLS-01 | Account A attempts to access account B's farmer and child records | RLS denies cross-account read/write; composite foreign keys reject cross-owner references | Production RLS/catalog and anon API checks passed; simulated authenticated isolation passed in PGlite; two real Supabase accounts not tested |
-| CRUD-01 | Create/update/delete each supported record category | Local display updates; successful sync survives reload | Local SQL routine tests passed; signed-in application CRUD/reload not tested |
-| SYNC-01 | Edit while offline, then reconnect | Local record remains; normalized records synchronize transactionally; pending cloud items transition to synced | Sync fixes build/lint passed; deployed-browser offline/reconnect not tested |
+| CRUD-01 | Create/update/delete supported farm-record categories | Local display updates; successful sync survives reload | Signed-in UI create/edit/delete passed for expenses, plots, visits, cash advances, repayments, harvests, and season budgets. Temporary records were removed and a subsequent reload showed no remaining test data. Farmer-account registration/profile creation, email records, and unsupported SMS/USSD delivery were not part of this test |
+| SYNC-01 | Edit while offline, then reconnect | Local record remains; normalized records synchronize transactionally; pending cloud items transition to synced | Signed-in browser test passed for an expense: saved locally offline, synced on reconnect, confirmed after reload, then deleted; target-device/PWA offline behavior not tested |
 | SYNC-02 | Force a failed cloud request and retry | Failure is visible; local data is retained; later successful retry saves snapshot | Local error paths reviewed; not exercised against a signed-in production app |
-| DATA-01 | Repeat synchronization of the same account dataset | Stable IDs upsert without duplicate relational records; save commits atomically | Idempotent/atomic behavior passed in local PGlite; production authenticated-role load/save smoke check passed with the save rolled back; actual app/JWT round-trip not tested |
+| DATA-01 | Repeat synchronization of the same account dataset | Stable IDs upsert without duplicate relational records; save commits atomically | Idempotent/atomic behavior passed in local PGlite; production authenticated-role load/save smoke check passed with the save rolled back; signed-in browser save, retry/snapshot sync, and reload round-trip passed for the exercised test records; full duplicate/concurrent multi-device testing not done |
 | DATA-02 | Apply all three migrations to an existing database with sample JSON records | Existing account rows and JSON snapshot remain; normalized rows are backfilled with relationships and farmer numbers remain unique | Production migrations applied; one existing account/profile remained, JSON archive retained, and farmer number verified unique/non-null |
 | FK-01 | Insert a child with a missing farmer/advance parent or another owner's parent ID | PostgreSQL foreign-key constraint rejects the invalid reference | Passed in local PGlite; production catalog confirms all ten foreign keys; live violating insert not attempted |
 | DELETE-01 | Delete a farmer or cash advance in test data | Related rows are cascade-deleted by foreign keys and no orphans remain | Farmer cascade passed in local PGlite; live production delete intentionally not attempted |
-| PWA-01 | Install app online, reopen offline | Cached app shell starts; previously cached local data is visible | Not verified on target mobile devices |
+| PWA-01 | Install app online, reopen offline | Cached app shell starts; previously cached local data is visible | Production build preview registered an active service worker; an offline route rendered the cached app shell in the integrated desktop browser. Target-device installation and previously authenticated private data while offline remain unverified |
 | REPORT-01 | Compare seasonal totals with source records | Harvest income equals quantity × price; expense and budget totals match records | Not verified with a formal test dataset |
 | EMAIL-01 | Configure EmailJS and send a test email | Email arrives and errors are visible on failure | Not verified; provider configuration required |
-| EMAIL-02 | Trigger an email notification without EmailJS configuration | Queue item is marked failed with a configuration message; no success is reported | Code path implemented; not verified in browser |
+| EMAIL-02 | Trigger an email notification without EmailJS configuration | Queue item is marked failed with a configuration message; no success is reported | Live repayment test produced an explicit failed queue item; no email was sent. Deleting its parent advance removed the unsent notification; orphaned failed test notifications were explicitly discarded |
 
 ### 9.3 Suggested test record
 
@@ -349,20 +351,19 @@ For each manual test, record the date, build/deployment URL, browser/device, tes
 The repository-level build and lint checks listed in Section 9.1 have been run. Documentation content, architecture, and data mapping were prepared from the project source files. The following items require access to the project team's Supabase/hosting configuration or actual browser/device testing and must be completed by a project team member:
 
 - Confirm the official school name, final course label, adviser name, authors' names/IDs, and required title-page format.
-- Exercise registration, login, password reset, and relational load/save in the deployed app with a real test farmer account; no password was available or requested for this validation.
+- Owner confirmed successful registration and password reset. If formal evidence is required, record the test account label and date without capturing passwords, tokens, or private email content. Invalid-credential sign-in still needs a test.
 - Use two real Supabase Auth accounts to validate cross-account read/write isolation; current live checks covered RLS configuration and anonymous access only.
-- Execute signed-in app CRUD for all record categories, then test refresh, offline edits, reconnect, failed-request retry, and PWA launch on target browsers/devices.
+- Signed-in UI CRUD for expenses, plots, visits, cash advances, repayments, harvests, and budgets was tested using temporary records and cleaned up after sync. Test farmer-profile creation/editing and email-record flows separately; SMS/USSD delivery is not implemented.
 - Production migrations were applied on 2026-11-01 through the SQL Editor. The Dashboard showed no backups; this proceeded only after the owner confirmed the single existing account/profile was example data. The original JSON snapshot was retained.
 - SQL Editor migrations are not recorded in the Supabase CLI migration-history table. Reconcile remote migration history before any future `supabase db push`; do not blindly rerun the backfill after users start changing relational data.
-- Configure and verify the Supabase Auth redirect URLs and registration/email-confirmation policy.
-- Execute AUTH-01 through AUTH-03 and RLS-01 in Section 9.2 using test accounts; record outcomes and evidence.
-- Execute CRUD-01, SYNC-01, SYNC-02, DATA-01/02, FK-01, and DELETE-01 using test data; record outcomes and evidence. Use only a disposable test project/account for destructive CRUD checks.
-- Execute PWA-01 on the target device/browser after an online installation; record offline/reconnect results.
+- Test AUTH-02 invalid credentials and use two real accounts for RLS-01; record outcomes and evidence.
+- Execute SYNC-02 and production-backed FK-01/DELETE-01 using disposable test data; record outcomes and evidence.
+- Execute PWA-01 on the target device/browser after an online installation and verify cached authenticated data/offline edits; record offline/reconnect results.
 - Execute REPORT-01 and, if email is part of the demo, EMAIL-01/02; record outcomes and evidence.
-- Replace each “Not verified” status in the test table only after performing that specific test. Mark blocked items as blocked and state the reason; never infer a pass from build/lint success.
+- Replace each “Not tested” or partial status in the test table only after performing that specific test. Mark blocked items as blocked and state the reason; never infer a pass from build/lint success.
 - Open the final `.docx` in Microsoft Word and inspect its layout, page breaks, tables, diagrams, title page, and printed/PDF output.
 
-The Supabase Auth health endpoint and production relational schema are reachable. Migration, RLS policy configuration, table constraints, RPC privileges, anonymous API isolation, backfill, farmer-number integrity, and an authenticated-database-role RPC smoke check were checked. The RPC smoke check used a simulated JWT claim in the Dashboard SQL Editor, not a real browser session or signed Supabase JWT. Authenticated app CRUD, real two-account RLS, live email delivery, deployed PWA behavior, and offline/reconnect on target devices remain unverified.
+The Supabase Auth health endpoint and production relational schema are reachable. Migration, RLS policy configuration, table constraints, RPC privileges, anonymous API isolation, backfill, farmer-number integrity, and an authenticated-database-role RPC smoke check were checked. The owner signed in to the local app using a disposable account. Live signed-in Supabase browser tests covered expense create/edit/delete, explicit synchronization, reload persistence, offline expense creation, reconnect synchronization, and UI create/edit/delete for plots, visits, cash advances, repayments, harvests, and budgets. All temporary test records were deleted and a subsequent reload showed no remaining test records. The owner separately reported that registration and password reset work; these Auth flows were not independently reproduced in this session. A production-build preview also registered its service worker and rendered an offline app-shell route in the integrated desktop browser; this did not validate private-data access offline or target-device installation. A missing EmailJS configuration correctly produced a failed notification state without sending an email; deleting the parent advance removed its unsent notification, and orphaned failed test notifications were explicitly discarded. Two-account RLS, invalid-credential sign-in, failed cloud-sync retry, configured email delivery, and target-device PWA behavior remain unverified. The earlier SQL Editor RPC smoke check used a simulated JWT claim rather than a real signed Supabase JWT.
 
 ## 10. Installation, Database Setup, and Deployment
 
@@ -425,7 +426,7 @@ The repository includes Vercel and Netlify configuration, but no external deploy
 2. **Legacy JSON archive:** the old `farmer_data.data` value is retained to protect existing data and support migration audit; it is not the active source used by the new application.
 3. **Browser storage:** localStorage is not encrypted and may be cleared or quota-limited.
 4. **Communication channels:** direct SMS and USSD/mobile-money services are not provided. Email delivery depends on EmailJS configuration and external provider availability.
-5. **Testing coverage:** build/lint, isolated relational tests, production schema/RLS configuration, anonymous isolation, and migration/backfill are verified. Authenticated app CRUD/sync, real two-account RLS, email delivery, PWA offline behavior, and multi-device conflict cases still require manual integration tests.
+5. **Testing coverage:** build/lint, isolated relational tests, production schema/RLS configuration, anonymous isolation, migration/backfill, signed-in CRUD for the tested farm-record categories, expense offline/reconnect, and a production-preview offline app shell are verified. The owner reports successful registration and password reset; these Auth flows were not independently reproduced in this session. Real two-account RLS, invalid-credential sign-in, failed-sync retry, email delivery, target-device offline access, and multi-device conflict cases still require manual integration tests.
 6. **Legacy import:** old MySQL data and unowned browser data are not automatically imported into Supabase.
 
 ### Recommended next iteration
@@ -440,7 +441,7 @@ The repository includes Vercel and Netlify configuration, but no external deploy
 
 AgriSync demonstrates a useful integration case: an installable React PWA, Supabase Auth, RLS-protected normalized PostgreSQL tables with foreign-key relationships, a browser-persisted local store, and a synchronization queue. It supports the key project discussion areas—problem definition, architecture, data mapping, integration workflow, error behavior, testing plan, and deployment instructions.
 
-The relational migration is now applied to the configured Supabase project, and the production schema, RLS configuration, anonymous isolation, backfill, and farmer-number setup have been verified. This is not yet a claim of fully end-to-end operation: signed-in app CRUD, real-user Auth/RLS, and deployed offline/reconnect behavior still need testing. The system should not be described as having multi-device conflict resolution or direct SMS/USSD delivery.
+The relational migration is now applied to the configured Supabase project, and the production schema, RLS configuration, anonymous isolation, backfill, and farmer-number setup have been verified. Live signed-in CRUD for the tested farm-record screens and core expense offline/reconnect behavior have been exercised. The owner reports that registration and password reset work, though these flows were not independently reproduced in this session. This is not a claim that every end-to-end flow has passed: two-account RLS, failed-sync retry, real deployment and target-device offline access remain to be tested. The system should not be described as having multi-device conflict resolution or direct SMS/USSD delivery.
 
 ## 14. References
 
@@ -467,11 +468,13 @@ The following references support the technologies and patterns discussed in this
 - [x] Architecture and synchronization workflow diagrams in this Markdown document.
 - [x] Existing project proposal and implementation source code.
 - [x] Build and lint checks recorded as passed in this document.
+- [x] Record signed-in CRUD smoke tests for expenses, plots, visits, cash advances, repayments, harvests, and budgets, plus a production-preview offline app-shell check.
 
 ### Complete before final submission
 
 - [ ] Add/confirm the official school name and verify all title-page details.
-- [ ] Run the live Supabase/Auth/RLS/CRUD/offline tests and attach truthful results/evidence.
+- [x] Owner confirmed successful registration and password reset.
+- [ ] Complete two-account RLS, failed-sync retry, and target-device PWA/offline tests; record truthful results/evidence.
 - [ ] Review the final Word document in Microsoft Word and confirm diagrams, tables, title page, and page breaks.
 - [ ] Prepare the separate presentation deliverable required by the project guidelines.
 - [ ] Submit the project proposal, design artifacts, implementation code, test evidence, project documentation, and presentation together, as requested by the instructor.

@@ -4,7 +4,7 @@ import { useAppState } from '../data/store'
 import { createExpense, deleteExpense, updateExpense } from '../data/repository'
 import { riceSeasonForFarmer, riceSeasonsForDb } from '../data/util'
 import { dbForUser } from '../data/selectors'
-import { fmtDate, fmtMoney } from '../data/format'
+import { dateInputValue, fmtDate, fmtMoney } from '../data/format'
 import { Button, Chip, confirmDialog, Field, Seg, toast } from '../components/kit'
 import { IconDownload, IconExpense, IconPlus, IconSearch, IconWallet } from '../components/icons'
 import type { DB, Expense, ExpenseCategory } from '../domain/types'
@@ -193,7 +193,7 @@ function ExpenseForm({
 }) {
   const farmers = [...db.farmers].sort((a, b) => a.name.localeCompare(b.name))
   const [farmerId, setFarmerId] = useState(initialExpense?.farmerId ?? '')
-  const [date, setDate] = useState(initialExpense?.date.slice(0, 10) ?? todayInput())
+  const [date, setDate] = useState(dateInputValue(initialExpense?.date) || todayInput())
   const [category, setCategory] = useState<ExpenseCategory>(
     initialExpense && CATEGORIES.some((item) => item.id === initialExpense.category)
       ? initialExpense.category
@@ -459,7 +459,7 @@ function downloadReport(db: DB): void {
     return `"${safeText.replace(/"/g, '""')}"`
   }
   const lines = db.expenses.map((e) => {
-    return [e.date.slice(0, 10), farmerName(e.farmerId), e.season, e.category, e.amount, e.description ?? '']
+    return [dateInputValue(e.date), farmerName(e.farmerId), e.season, e.category, e.amount, e.description ?? '']
       .map(csvCell)
       .join(',')
   })
@@ -467,7 +467,7 @@ function downloadReport(db: DB): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `rice-farm-expense-report-${new Date().toISOString().slice(0, 10)}.csv`
+  a.download = `rice-farm-expense-report-${todayInput()}.csv`
   a.click()
   window.setTimeout(() => URL.revokeObjectURL(url), 0)
   toast('Expense report generated — download started')

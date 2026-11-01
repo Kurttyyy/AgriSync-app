@@ -1,12 +1,18 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAppState } from '../data/store'
-import { createPlot } from '../data/repository'
-import { createExpense } from '../data/repository'
-import { totalRepaid } from '../data/repository'
+import {
+  createExpense,
+  createPlot,
+  deletePlot,
+  deleteVisit,
+  totalRepaid,
+  updatePlot,
+  updateVisit,
+} from '../data/repository'
 import { cashAdvanceStatus, dbForUser } from '../data/selectors'
-import { fmtCashAdvanceDueDate, fmtDate, fmtMoney, fmtRelative, fmtShortDate } from '../data/format'
-import { Avatar, Chip, HEALTH_TONE, Initials, Meta, toast, Button, Field, Seg } from '../components/kit'
+import { dateInputValue, fmtCashAdvanceDueDate, fmtDate, fmtMoney, fmtRelative, fmtShortDate } from '../data/format'
+import { Avatar, Chip, confirmDialog, HEALTH_TONE, Initials, Meta, toast, Button, Field, Seg } from '../components/kit'
 import {
   IconBell,
   IconChevronLeft,
@@ -20,7 +26,7 @@ import {
   IconSync,
   IconWallet,
 } from '../components/icons'
-import type { ExpenseCategory } from '../domain/types'
+import type { ExpenseCategory, Plot, Visit } from '../domain/types'
 import { CATEGORIES, categoryLabel, categoryTone } from './Expenses'
 import { riceSeasonForFarmer } from '../data/util'
 
@@ -33,17 +39,11 @@ export default function FarmerDetail() {
   const farmer = db.farmers.find((f) => f.id === id)
 
   const [showPlot, setShowPlot] = useState(false)
-  const [plot, setPlot] = useState({
-    name: '',
-    areaHa: '1.0',
-    soilType: 'Sandy loam',
-    plantedDate: new Date().toISOString().slice(0, 10),
-    expectedYieldT: '2.0',
-    health: 'good',
-  })
+  const [editingPlot, setEditingPlot] = useState<Plot | null>(null)
+  const [editingVisit, setEditingVisit] = useState<Visit | null>(null)
   const [showExpense, setShowExpense] = useState(false)
   const [expense, setExpense] = useState({
-    date: new Date().toISOString().slice(0, 10),
+    date: dateInputValue(new Date().toISOString()),
     category: 'seeds' as ExpenseCategory,
     customCategory: '',
     customCategoryMode: false,
@@ -75,34 +75,6 @@ export default function FarmerDetail() {
     0,
   )
 
-  function addPlot(e: FormEvent) {
-    e.preventDefault()
-    const areaHa = Number(plot.areaHa)
-    const expectedYieldT = Number(plot.expectedYieldT)
-    const plantedDate = new Date(`${plot.plantedDate}T00:00:00`)
-    if (!Number.isFinite(areaHa) || areaHa <= 0 || !Number.isFinite(expectedYieldT) || expectedYieldT < 0) {
-      toast('Enter a valid plot area and expected yield.', 'alert')
-      return
-    }
-    if (!plot.plantedDate || !Number.isFinite(plantedDate.getTime())) {
-      toast('Choose a valid planting date.', 'alert')
-      return
-    }
-    createPlot({
-        farmerId: f.id,
-        name: plot.name.trim() || 'Palay (rice) field',
-        crop: 'Palay (rice)',
-        areaHa,
-        soilType: plot.soilType,
-        season: activeSeason,
-        plantedDate: plantedDate.toISOString(),
-        expectedYieldT,
-        health: plot.health as 'good' | 'fair' | 'poor',
-      })
-    toast(online ? 'Plot saved and syncing to your account.' : 'Plot saved on this device; it will sync when online.', online ? 'ok' : 'alert')
-    setShowPlot(false)
-  }
-
   function addExpense(e: FormEvent) {
     e.preventDefault()
     const amt = parseFloat(expense.amount)
@@ -125,7 +97,7 @@ export default function FarmerDetail() {
     toast(online ? 'Expense saved and syncing to your account.' : 'Expense saved on this device; it will sync when online.', online ? 'ok' : 'alert')
     setShowExpense(false)
     setExpense({
-      date: new Date().toISOString().slice(0, 10),
+      date: dateInputValue(new Date().toISOString()),
       category: 'seeds',
       customCategory: '',
       customCategoryMode: false,
@@ -231,50 +203,23 @@ export default function FarmerDetail() {
         <Link to={`/farmers/${f.id}/visit`} className="btn btn-primary grow">
           <IconPlus width={16} height={16} /> Log visit
         </Link>
-        <button className="btn btn-ghost grow" onClick={() => setShowPlot((v) => !v)}>
+        <button className="btn btn-ghost grow" onClick={() => {
+          setEditingPlot(null)
+          setShowPlot((v) => !v)
+        }}>
           <IconLeaf width={16} height={16} /> Add plot
         </button>
       </div>
 
       {showPlot && (
-        <form onSubmit={addPlot} className="card mt-4" style={{ borderColor: 'var(--brand)' }}>
-          <h3 className="mb-3">New plot</h3>
-          <div className="form-grid">
-            <Field label="Plot name">
-              <input className="input" value={plot.name} onChange={(e) => setPlot({ ...plot, name: e.target.value })} placeholder="e.g. Upper field" />
-            </Field>
-            <Field label="Area (ha)">
-              <input className="input" type="number" min="0.1" step="0.1" value={plot.areaHa} onChange={(e) => setPlot({ ...plot, areaHa: e.target.value })} required />
-            </Field>
-            <Field label="Soil type">
-              <select className="select" value={plot.soilType} onChange={(e) => setPlot({ ...plot, soilType: e.target.value })}>
-                {['Sandy loam', 'Clay loam', 'Coastal sand', 'Loam'].map((s) => <option key={s}>{s}</option>)}
-              </select>
-            </Field>
-            <Field label="Current rice season">
-                <input className="input" value={activeSeason} readOnly />
-            </Field>
-            <Field label="Planted">
-              <input className="input" type="date" value={plot.plantedDate} onChange={(e) => setPlot({ ...plot, plantedDate: e.target.value })} required />
-            </Field>
-            <Field label="Expected yield (t)">
-              <input className="input" type="number" min="0" step="0.1" value={plot.expectedYieldT} onChange={(e) => setPlot({ ...plot, expectedYieldT: e.target.value })} required />
-            </Field>
-            <Field label="Crop health">
-              <div className="pill-row">
-                {(['good', 'fair', 'poor'] as const).map((h) => (
-                  <button type="button" key={h} className={`pill${plot.health === h ? ' on' : ''}`} onClick={() => setPlot({ ...plot, health: h })}>
-                    {h}
-                  </button>
-                ))}
-              </div>
-            </Field>
-          </div>
-          <div className="flex gap-md mt-4">
-            <Button type="submit" block>Save plot</Button>
-            <button type="button" className="btn btn-ghost" onClick={() => setShowPlot(false)}>Cancel</button>
-          </div>
-        </form>
+        <PlotForm
+          key={editingPlot?.id ?? 'new'}
+          farmerId={f.id}
+          season={editingPlot?.season ?? activeSeason}
+          online={online}
+          initialPlot={editingPlot ?? undefined}
+          onSaved={() => { setShowPlot(false); setEditingPlot(null) }}
+        />
       )}
 
       <Seg icon={<IconLeaf width={14} height={14} />}>Farm plots</Seg>
@@ -290,6 +235,25 @@ export default function FarmerDetail() {
                 <div className="row-sub">{p.crop} · {p.areaHa} ha · {p.soilType} · planted {fmtShortDate(p.plantedDate)} · yield est {p.expectedYieldT} t</div>
               </div>
               <Chip tone={HEALTH_TONE[p.health]}>{p.health}</Chip>
+              <span className="flex gap-sm">
+                <button className="btn btn-ghost btn-sm" onClick={() => { setEditingPlot(p); setShowPlot(true) }}>Edit</button>
+                <button className="btn btn-danger-ghost btn-sm" onClick={() => confirmDialog(
+                  'Delete plot?',
+                  'This plot will be removed from this account and its next database sync.',
+                  () => {
+                    try {
+                      deletePlot(p.id)
+                      if (editingPlot?.id === p.id) {
+                        setEditingPlot(null)
+                        setShowPlot(false)
+                      }
+                      toast('Plot deleted.')
+                    } catch (error) {
+                      toast(error instanceof Error ? error.message : 'Could not delete the plot.', 'alert')
+                    }
+                  },
+                )}>Delete</button>
+              </span>
             </div>
           ))
         )}
@@ -308,10 +272,37 @@ export default function FarmerDetail() {
                 <div className="feed-sub">{fmtDate(v.date)} · {v.cropStage} · {v.health === 'good' ? 'Healthy' : v.health === 'fair' ? 'Fair' : 'At risk'}</div>
               </div>
               <span className="feed-time">{fmtRelative(v.date)}</span>
+              <span className="flex gap-sm">
+                <button className="btn btn-ghost btn-sm" onClick={() => setEditingVisit(v)}>Edit</button>
+                <button className="btn btn-danger-ghost btn-sm" onClick={() => confirmDialog(
+                  'Delete field visit?',
+                  'This visit will be removed from this account and its next database sync.',
+                  () => {
+                    try {
+                      deleteVisit(v.id)
+                      if (editingVisit?.id === v.id) setEditingVisit(null)
+                      toast('Field visit deleted.')
+                    } catch (error) {
+                      toast(error instanceof Error ? error.message : 'Could not delete the visit.', 'alert')
+                    }
+                  },
+                )}>Delete</button>
+              </span>
             </div>
           ))
         )}
       </section>
+      {editingVisit && (
+        <VisitForm
+          key={editingVisit.id}
+          farmerId={f.id}
+          season={editingVisit.season ?? activeSeason}
+          online={online}
+          initialVisit={editingVisit}
+          onSaved={() => setEditingVisit(null)}
+          onCancel={() => setEditingVisit(null)}
+        />
+      )}
 
       <Seg icon={<IconWallet width={14} height={14} />}>Farm expenses</Seg>
       <section className="card">
@@ -440,5 +431,202 @@ export default function FarmerDetail() {
         )}
       </section>
     </>
+  )
+}
+
+function PlotForm({
+  farmerId,
+  season,
+  online,
+  initialPlot,
+  onSaved,
+}: {
+  farmerId: string
+  season: string
+  online: boolean
+  initialPlot?: Plot
+  onSaved: () => void
+}) {
+  const [name, setName] = useState(initialPlot?.name ?? '')
+  const [areaHa, setAreaHa] = useState(String(initialPlot?.areaHa ?? 1))
+  const [soilType, setSoilType] = useState(initialPlot?.soilType ?? 'Sandy loam')
+  const [plantedDate, setPlantedDate] = useState(dateInputValue(initialPlot?.plantedDate) || dateInputValue(new Date().toISOString()))
+  const [expectedYieldT, setExpectedYieldT] = useState(String(initialPlot?.expectedYieldT ?? 2))
+  const [health, setHealth] = useState<Plot['health']>(initialPlot?.health ?? 'good')
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const area = Number(areaHa)
+    const yieldT = Number(expectedYieldT)
+    const plantedAt = new Date(`${plantedDate}T00:00:00`)
+    if (!Number.isFinite(area) || area <= 0 || !Number.isFinite(yieldT) || yieldT < 0) {
+      toast('Enter a valid plot area and expected yield.', 'alert')
+      return
+    }
+    if (!plantedDate || !Number.isFinite(plantedAt.getTime())) {
+      toast('Choose a valid planting date.', 'alert')
+      return
+    }
+    const data = {
+      farmerId,
+      name: name.trim() || 'Palay (rice) field',
+      crop: initialPlot?.crop ?? 'Palay (rice)',
+      areaHa: area,
+      soilType,
+      season,
+      plantedDate: plantedAt.toISOString(),
+      expectedYieldT: yieldT,
+      health,
+    }
+    try {
+      if (initialPlot) updatePlot(initialPlot.id, data)
+      else createPlot(data)
+      toast(
+        initialPlot ? 'Plot updated.' : online ? 'Plot saved and syncing to your account.' : 'Plot saved on this device; it will sync when online.',
+        online ? 'ok' : 'alert',
+      )
+      onSaved()
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not save the plot.', 'alert')
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="card mt-4" style={{ borderColor: 'var(--brand)' }}>
+      <h3 className="mb-3">{initialPlot ? 'Edit plot' : 'New plot'}</h3>
+      <div className="form-grid">
+        <Field label="Plot name">
+          <input className="input" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Upper field" />
+        </Field>
+        <Field label="Area (ha)">
+          <input className="input" type="number" min="0.1" step="0.1" value={areaHa} onChange={(event) => setAreaHa(event.target.value)} required />
+        </Field>
+        <Field label="Soil type">
+          <select className="select" value={soilType} onChange={(event) => setSoilType(event.target.value)}>
+            {['Sandy loam', 'Clay loam', 'Coastal sand', 'Loam'].map((soil) => <option key={soil}>{soil}</option>)}
+          </select>
+        </Field>
+        <Field label="Rice season">
+          <input className="input" value={season} readOnly />
+        </Field>
+        <Field label="Planted">
+          <input className="input" type="date" value={plantedDate} onChange={(event) => setPlantedDate(event.target.value)} required />
+        </Field>
+        <Field label="Expected yield (t)">
+          <input className="input" type="number" min="0" step="0.1" value={expectedYieldT} onChange={(event) => setExpectedYieldT(event.target.value)} required />
+        </Field>
+        <Field label="Crop health">
+          <div className="pill-row">
+            {(['good', 'fair', 'poor'] as const).map((value) => (
+              <button type="button" key={value} className={`pill${health === value ? ' on' : ''}`} onClick={() => setHealth(value)}>
+                {value}
+              </button>
+            ))}
+          </div>
+        </Field>
+      </div>
+      <div className="flex gap-md mt-4">
+        <Button type="submit" block>{initialPlot ? 'Save changes' : 'Save plot'}</Button>
+        <button type="button" className="btn btn-ghost" onClick={onSaved}>Cancel</button>
+      </div>
+    </form>
+  )
+}
+
+function VisitForm({
+  farmerId,
+  season,
+  online,
+  initialVisit,
+  onSaved,
+  onCancel,
+}: {
+  farmerId: string
+  season: string
+  online: boolean
+  initialVisit: Visit
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [date, setDate] = useState(dateInputValue(initialVisit.date))
+  const [purpose, setPurpose] = useState(initialVisit.purpose)
+  const [cropStage, setCropStage] = useState(initialVisit.cropStage)
+  const [health, setHealth] = useState<Visit['health']>(initialVisit.health)
+  const [pests, setPests] = useState(initialVisit.pests.join(', '))
+  const [inputsUsed, setInputsUsed] = useState(initialVisit.inputsUsed.join(', '))
+  const [notes, setNotes] = useState(initialVisit.notes)
+  const [followUpDate, setFollowUpDate] = useState(dateInputValue(initialVisit.followUpDate))
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const visitDate = new Date(`${date}T12:00:00`)
+    const followUp = followUpDate ? new Date(`${followUpDate}T12:00:00`) : undefined
+    if (!purpose.trim()) {
+      toast('Add a purpose for the visit.', 'alert')
+      return
+    }
+    if (!Number.isFinite(visitDate.getTime()) || (followUp && !Number.isFinite(followUp.getTime()))) {
+      toast('Choose valid visit and follow-up dates.', 'alert')
+      return
+    }
+    try {
+      updateVisit(initialVisit.id, {
+        farmerId,
+        date: visitDate.toISOString(),
+        season,
+        purpose: purpose.trim(),
+        cropStage,
+        health,
+        pests: pests.split(',').map((item) => item.trim()).filter(Boolean),
+        inputsUsed: inputsUsed.split(',').map((item) => item.trim()).filter(Boolean),
+        notes: notes.trim() || 'No notes.',
+        followUpDate: followUp?.toISOString(),
+        offline: !online,
+      })
+      toast(online ? 'Visit updated and syncing to your account.' : 'Visit updated on this device; it will sync when online.', online ? 'ok' : 'alert')
+      onSaved()
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not update the visit.', 'alert')
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="card mt-4" style={{ borderColor: 'var(--brand)' }}>
+      <h3 className="mb-3">Edit field visit</h3>
+      <div className="form-grid">
+        <Field label="Visit date">
+          <input className="input" type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+        </Field>
+        <Field label="Purpose">
+          <input className="input" value={purpose} onChange={(event) => setPurpose(event.target.value)} required />
+        </Field>
+        <Field label="Crop stage">
+          <select className="select" value={cropStage} onChange={(event) => setCropStage(event.target.value)}>
+            {['Early growth', 'Vegetative', 'Flowering', 'Maturity', 'Harvest'].map((stage) => <option key={stage}>{stage}</option>)}
+          </select>
+        </Field>
+        <Field label="Crop health">
+          <select className="select" value={health} onChange={(event) => setHealth(event.target.value as Visit['health'])}>
+            <option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option>
+          </select>
+        </Field>
+        <Field label="Pests observed (comma-separated)">
+          <input className="input" value={pests} onChange={(event) => setPests(event.target.value)} />
+        </Field>
+        <Field label="Inputs used (comma-separated)">
+          <input className="input" value={inputsUsed} onChange={(event) => setInputsUsed(event.target.value)} />
+        </Field>
+        <Field label="Follow-up date (optional)">
+          <input className="input" type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} />
+        </Field>
+        <Field label="Notes">
+          <textarea className="textarea" value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </Field>
+      </div>
+      <div className="flex gap-md mt-4">
+        <Button type="submit">Save changes</Button>
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
   )
 }

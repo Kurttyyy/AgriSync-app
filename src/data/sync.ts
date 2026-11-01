@@ -196,3 +196,14 @@ export function discardSynced(itemIds: ReadonlySet<string>): void {
     outbox: s.outbox.filter((item) => !itemIds.has(item.id) || item.status !== 'synced'),
   }))
 }
+
+export function discardOrphanedEmailNotification(id: string): void {
+  const item = getState().outbox.find((entry) => entry.id === id)
+  if (!item || item.entity !== 'email' || item.status !== 'failed') {
+    throw new Error('The failed email notification could not be found.')
+  }
+  if (getState().db.cashAdvances.some((advance) => advance.id === item.entityId)) {
+    throw new Error('Email notifications for an existing cash advance can be retried instead.')
+  }
+  setState((state) => ({ outbox: state.outbox.filter((entry) => entry.id !== id) }))
+}

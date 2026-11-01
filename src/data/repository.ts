@@ -411,7 +411,14 @@ export function deleteRepayment(cashAdvanceId: string, repaymentId: string): voi
 export function deleteCashAdvance(id: string): void {
   const current = getState().db.cashAdvances.find((item) => item.id === id)
   if (!current) throw new Error('The cash advance record could not be found.')
-  setState((s) => ({ db: { ...s.db, cashAdvances: s.db.cashAdvances.filter((item) => item.id !== id) } }))
+  setState((s) => ({
+    db: { ...s.db, cashAdvances: s.db.cashAdvances.filter((item) => item.id !== id) },
+    outbox: s.outbox.filter((item) => !(
+      item.entity === 'email' &&
+      item.entityId === id &&
+      (item.status === 'pending' || item.status === 'failed')
+    )),
+  }))
   enqueue('cashAdvance', id, 'delete', { id })
 }
 

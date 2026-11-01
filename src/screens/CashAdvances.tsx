@@ -2,10 +2,18 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useAppState } from '../data/store'
 import { cashAdvanceStatus, dbForUser } from '../data/selectors'
-import { addRepayment, createCashAdvance, totalRepaid } from '../data/repository'
-import { fmtCashAdvanceDueDate, fmtDate, fmtMoney } from '../data/format'
+import {
+  addRepayment,
+  createCashAdvance,
+  deleteCashAdvance,
+  deleteRepayment,
+  totalRepaid,
+  updateCashAdvance,
+  updateRepayment,
+} from '../data/repository'
+import { dateInputValue, fmtCashAdvanceDueDate, fmtDate, fmtMoney } from '../data/format'
 import { riceSeasonForFarmer, riceSeasonsForDb } from '../data/util'
-import { Button, Chip, Field, Meta, Stat, toast } from '../components/kit'
+import { Button, Chip, confirmDialog, Field, Meta, Stat, toast } from '../components/kit'
 import { IconCashAdvance, IconPlus } from '../components/icons'
 import type { CashAdvance, DB, Repayment } from '../domain/types'
 
@@ -22,6 +30,8 @@ export default function CashAdvances() {
   const online = useAppState((state) => state.online)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(db.cashAdvances.length === 0)
+  const [editingAdvance, setEditingAdvance] = useState<CashAdvance | null>(null)
+  const [editingRepayment, setEditingRepayment] = useState<{ advanceId: string; repaymentId: string } | null>(null)
   const [seasonFilter, setSeasonFilter] = useState('')
   const seasons = riceSeasonsForDb(db)
   const advances = [...db.cashAdvances]
@@ -48,7 +58,10 @@ export default function CashAdvances() {
           <h1 className="mt-2">My Cash Advance Records</h1>
           <p className="text-sm mt-2">Record cash advances you receive and keep track of your balances.</p>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowForm((value) => !value)}>
+        <button className="btn btn-primary btn-sm" onClick={() => {
+          setEditingAdvance(null)
+          setShowForm((value) => !value)
+        }}>
           <IconPlus width={16} height={16} /> {showForm ? 'Hide form' : 'Record cash advance'}
         </button>
       </div>
@@ -57,7 +70,7 @@ export default function CashAdvances() {
         <section className="card" style={{ marginBottom: 14 }}>
           <div className="card-row">
             <div>
-              <span className="card-title">Record a cash advance</span>
+              <span className="card-title">{editingAdvance ? 'Edit cash advance' : 'Record a cash advance'}</span>
               <p className="text-sm mt-2">Add an advance you have already received. This records it in your farm account.</p>
             </div>
           </div>
@@ -70,7 +83,13 @@ export default function CashAdvances() {
               </Link>
             </div>
           ) : (
-            <CashAdvanceForm db={db} online={online} onSaved={() => setShowForm(false)} />
+            <CashAdvanceForm
+              key={editingAdvance?.id ?? 'new'}
+              db={db}
+              online={online}
+              initialAdvance={editingAdvance ?? undefined}
+              onSaved={() => { setShowForm(false); setEditingAdvance(null) }}
+            />
           )}
         </section>
       )}
@@ -150,16 +169,67 @@ export default function CashAdvances() {
                       <div className="mt-3">
                         {advance.repayments.map((repayment) => (
                           <div className="flex between" key={repayment.id} style={{ fontSize: 13, padding: '6px 0', borderTop: '1px dashed var(--line)' }}>
-                            <span className="text-mute">{fmtDate(repayment.date)}</span>
-                            <span style={{ fontWeight: 650, color: 'var(--ink)' }}>{fmtMoney(repayment.amount)}</span>
+                            {editingRepayment?.advanceId === advance.id && editingRepayment.repaymentId === repayment.id ? (
+                              <RepaymentForm
+                                key={repayment.id}
+                                advance={advance}
+                                remaining={Math.max(0, advance.principal - paid + repayment.amount)}
+                                initialRepayment={repayment}
+                                onDone={() => setEditingRepayment(null)}
+                              />
+                            ) : (
+                              <>
+                                <span className="text-mute">{fmtDate(repayment.date)} · {repayment.method}</span>
+                                <span style={{ fontWeight: 650, color: 'var(--ink)' }}>{fmtMoney(repayment.amount)}</span>
+                                <span className="flex gap-sm">
+                                  <button className="btn btn-ghost btn-sm" onClick={() => setEditingRepayment({ advanceId: advance.id, repaymentId: repayment.id })}>Edit</button>
+                                  <button className="btn btn-danger-ghost btn-sm" onClick={() => confirmDialog(
+                                    'Delete repayment?',
+                                    'This payment will be removed and the remaining advance balance recalculated.',
+                                    () => {
+                                      try {
+                                        deleteRepayment(advance.id, repayment.id)
+                                        toast('Repayment deleted.')
+                                      } catch (error) {
+                                        toast(error instanceof Error ? error.message : 'Could not delete the repayment.', 'alert')
+                                      }
+                                    },
+                                  )}>Delete</button>
+                                </span>
+                              </>
+                            )}
                           </div>
                         ))}
                       </div>
                     )}
+                    <div className="flex gap-sm mt-3">
+                      <button className="btn btn-ghost btn-sm" onClick={() => {
+                        setEditingAdvance(advance)
+                        setShowForm(true)
+                      }}>Edit advance</button>
+                      <button className="btn btn-danger-ghost btn-sm" onClick={() => confirmDialog(
+                        'Delete cash advance?',
+                        'This advance and its repayment history will be removed from this account and its next database sync.',
+                        () => {
+                          try {
+                            deleteCashAdvance(advance.id)
+                            if (editingRepayment?.advanceId === advance.id) setEditingRepayment(null)
+                            if (editingAdvance?.id === advance.id) {
+                              setEditingAdvance(null)
+                              setShowForm(false)
+                            }
+                            toast('Cash advance deleted.')
+                          } catch (error) {
+                            toast(error instanceof Error ? error.message : 'Could not delete the cash advance.', 'alert')
+                          }
+                        },
+                      )}>Delete advance</button>
+                    </div>
                     {status !== 'repaid' && paid < advance.principal && (
                       <RepaymentForm
                         advance={advance}
                         remaining={Math.max(0, advance.principal - paid)}
+                        onDone={() => undefined}
                       />
                     )}
                   </div>
@@ -173,10 +243,20 @@ export default function CashAdvances() {
   )
 }
 
-function RepaymentForm({ advance, remaining }: { advance: CashAdvance; remaining: number }) {
-  const [date, setDate] = useState(todayInput())
-  const [amount, setAmount] = useState('')
-  const [method, setMethod] = useState<Repayment['method']>('cash')
+function RepaymentForm({
+  advance,
+  remaining,
+  initialRepayment,
+  onDone,
+}: {
+  advance: CashAdvance
+  remaining: number
+  initialRepayment?: Repayment
+  onDone: () => void
+}) {
+  const [date, setDate] = useState(dateInputValue(initialRepayment?.date) || todayInput())
+  const [amount, setAmount] = useState(initialRepayment ? String(initialRepayment.amount) : '')
+  const [method, setMethod] = useState<Repayment['method']>(initialRepayment?.method ?? 'cash')
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -190,23 +270,28 @@ function RepaymentForm({ advance, remaining }: { advance: CashAdvance; remaining
       return
     }
     try {
-      addRepayment(advance.id, {
+      const data = {
         date: new Date(`${date}T00:00:00`).toISOString(),
         amount: Math.round(repaymentAmount),
         method,
-      })
+      }
+      if (initialRepayment) updateRepayment(advance.id, initialRepayment.id, data)
+      else addRepayment(advance.id, data)
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Could not record the repayment.', 'alert')
       return
     }
-    toast('Repayment recorded.')
-    setAmount('')
-    setDate(todayInput())
+    toast(initialRepayment ? 'Repayment updated.' : 'Repayment recorded.')
+    if (initialRepayment) onDone()
+    else {
+      setAmount('')
+      setDate(todayInput())
+    }
   }
 
   return (
     <form className="mt-4" onSubmit={submit}>
-      <div className="seg-title">Record a repayment</div>
+      <div className="seg-title">{initialRepayment ? 'Edit repayment' : 'Record a repayment'}</div>
       <div className="form-grid">
         <Field label="Date paid">
           <input className="input" type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
@@ -232,20 +317,33 @@ function RepaymentForm({ advance, remaining }: { advance: CashAdvance; remaining
           </select>
         </Field>
       </div>
-      <Button type="submit" className="mt-3">Save repayment</Button>
+      <div className="flex gap-sm mt-3">
+        <Button type="submit">{initialRepayment ? 'Save changes' : 'Save repayment'}</Button>
+        {initialRepayment && <button type="button" className="btn btn-ghost" onClick={onDone}>Cancel</button>}
+      </div>
     </form>
   )
 }
 
-function CashAdvanceForm({ db, online, onSaved }: { db: DB; online: boolean; onSaved: () => void }) {
+function CashAdvanceForm({
+  db,
+  online,
+  initialAdvance,
+  onSaved,
+}: {
+  db: DB
+  online: boolean
+  initialAdvance?: CashAdvance
+  onSaved: () => void
+}) {
   const farmers = [...db.farmers].sort((a, b) => a.name.localeCompare(b.name))
-  const [farmerId, setFarmerId] = useState(farmers[0]?.id ?? '')
-  const [kind, setKind] = useState<CashAdvance['kind']>('cash-advance')
-  const [label, setLabel] = useState('')
-  const [principal, setPrincipal] = useState('')
-  const [disbursedDate, setDisbursedDate] = useState(todayInput())
-  const [dueDate, setDueDate] = useState('')
-  const [dueAfterHarvest, setDueAfterHarvest] = useState(false)
+  const [farmerId, setFarmerId] = useState(initialAdvance?.farmerId ?? farmers[0]?.id ?? '')
+  const [kind, setKind] = useState<CashAdvance['kind']>(initialAdvance?.kind ?? 'cash-advance')
+  const [label, setLabel] = useState(initialAdvance?.label ?? '')
+  const [principal, setPrincipal] = useState(initialAdvance ? String(initialAdvance.principal) : '')
+  const [disbursedDate, setDisbursedDate] = useState(dateInputValue(initialAdvance?.disbursedDate) || todayInput())
+  const [dueDate, setDueDate] = useState(dateInputValue(initialAdvance?.dueDate))
+  const [dueAfterHarvest, setDueAfterHarvest] = useState(initialAdvance?.dueAfterHarvest ?? false)
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -262,24 +360,29 @@ function CashAdvanceForm({ db, online, onSaved }: { db: DB; online: boolean; onS
       toast('Due date must be on or after the date received', 'alert')
       return
     }
-
-    createCashAdvance({
+    const data = {
       farmerId,
-      season: riceSeasonForFarmer(farmers.find((farmer) => farmer.id === farmerId), db.plots),
+      season: initialAdvance?.farmerId === farmerId
+        ? initialAdvance.season ?? ''
+        : riceSeasonForFarmer(farmers.find((farmer) => farmer.id === farmerId), db.plots),
       kind,
       label: label.trim() || kindLabel(kind),
       principal: Math.round(amount),
       disbursedDate: new Date(`${disbursedDate}T00:00:00`).toISOString(),
       dueDate: dueAfterHarvest ? '' : new Date(`${dueDate}T00:00:00`).toISOString(),
       dueAfterHarvest,
-    })
-    toast(online ? 'Cash advance saved and syncing to your account.' : 'Cash advance saved on this device; it will sync when online.', online ? 'ok' : 'alert')
-    setLabel('')
-    setPrincipal('')
-    setDueDate('')
-    setDueAfterHarvest(false)
-    setDisbursedDate(todayInput())
-    onSaved()
+    }
+    try {
+      if (initialAdvance) updateCashAdvance(initialAdvance.id, data)
+      else createCashAdvance(data)
+      toast(
+        initialAdvance ? 'Cash advance updated.' : online ? 'Cash advance saved and syncing to your account.' : 'Cash advance saved on this device; it will sync when online.',
+        online ? 'ok' : 'alert',
+      )
+      onSaved()
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'Could not save the cash advance.', 'alert')
+    }
   }
 
   return (
@@ -345,7 +448,7 @@ function CashAdvanceForm({ db, online, onSaved }: { db: DB; online: boolean; onS
       <div className="flex gap-md mt-3" style={{ justifyContent: 'flex-end' }}>
         <button type="button" className="btn btn-ghost" onClick={onSaved}>Cancel</button>
         <Button type="submit">
-          <IconPlus width={15} height={15} /> Save record
+            <IconPlus width={15} height={15} /> {initialAdvance ? 'Save changes' : 'Save record'}
         </Button>
       </div>
     </form>

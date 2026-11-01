@@ -24,6 +24,17 @@ export function fmtDate(iso?: string | null): string {
   return new Date(iso).toLocaleDateString('en-PH', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+export function dateInputValue(iso?: string | null): string {
+  if (!iso) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function fmtCashAdvanceDueDate(dueDate: string, dueAfterHarvest?: boolean): string {
   return dueAfterHarvest ? 'After harvest' : fmtDate(dueDate)
 }
