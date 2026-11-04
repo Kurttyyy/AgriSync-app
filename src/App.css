@@ -1,7 +1,4 @@
-/* ============================================================
-   App shell
-   Breakpoints: Mobile 320px · Tablet 768px · Desktop 1024px
-   ============================================================ */
+
 .app-shell {
   display: flex;
   flex-direction: column;
